@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+server/instance/gracelab.sqlite3
+server/instance/config.ini
+client/client_config.ini
+
+*.log
+*.sqlite3-journal
+.DS_Store

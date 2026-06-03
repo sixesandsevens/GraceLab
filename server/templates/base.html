@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}GraceLab{% endblock %} — Grace Marketplace</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/gracelab.css') }}">
+</head>
+<body>
+
+{% if current_user.is_authenticated %}
+<nav class="navbar">
+  <div class="navbar-brand">GraceLab</div>
+  <ul class="navbar-links">
+    <li><a href="{{ url_for('dashboard.index') }}" {% if request.endpoint == 'dashboard.index' %}class="active"{% endif %}>Dashboard</a></li>
+    <li><a href="{{ url_for('sessions.new_session') }}" {% if request.endpoint == 'sessions.new_session' %}class="active"{% endif %}>New Code</a></li>
+    <li><a href="{{ url_for('sessions.list_sessions') }}" {% if request.endpoint and request.endpoint.startswith('sessions.') %}class="active"{% endif %}>Sessions</a></li>
+  </ul>
+  <div class="navbar-user">
+    {{ current_user.username }}
+    <form method="post" action="{{ url_for('auth.logout') }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn-link">Log out</button>
+    </form>
+  </div>
+</nav>
+{% endif %}
+
+<main class="main-content">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-messages">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+</body>
+</html>

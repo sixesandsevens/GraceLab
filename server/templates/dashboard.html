@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Dashboard</h2>
+  <a href="{{ url_for('sessions.new_session') }}" class="btn btn-primary">Generate Session Code</a>
+</div>
+
+<section class="dashboard-section">
+  <h3>Active Sessions</h3>
+  {% if active_sessions %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Station</th>
+        <th>Started</th>
+        <th>Expires</th>
+        <th>Time Remaining</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in active_sessions %}
+      {% set secs = s.time_remaining_seconds() %}
+      {% set mins = (secs // 60) %}
+      <tr class="{% if secs < 300 %}row-warning{% endif %}">
+        <td><strong>{{ s.code_display }}</strong></td>
+        <td>{{ s.station.display_name if s.station else '—' }}</td>
+        <td>{{ s.started_at.strftime('%H:%M') if s.started_at else '—' }}</td>
+        <td>{{ s.expires_at.strftime('%H:%M') if s.expires_at else '—' }}</td>
+        <td>{{ mins }}m {{ secs % 60 }}s</td>
+        <td class="action-cell">
+          <form method="post" action="{{ url_for('sessions.extend', session_id=s.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="minutes" value="15">
+            <button type="submit" class="btn btn-sm btn-secondary">+15</button>
+          </form>
+          <form method="post" action="{{ url_for('sessions.extend', session_id=s.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="minutes" value="30">
+            <button type="submit" class="btn btn-sm btn-secondary">+30</button>
+          </form>
+          <form method="post" action="{{ url_for('sessions.end', session_id=s.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-danger"
+              onclick="return confirm('End session {{ s.code_display }} now?')">End</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No active sessions.</p>
+  {% endif %}
+</section>
+
+<section class="dashboard-section">
+  <h3>Lab Stations</h3>
+  {% if stations %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Station</th>
+        <th>Status</th>
+        <th>Current Session</th>
+        <th>Last Seen</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for st in stations %}
+      <tr>
+        <td>{{ st.display_name }}</td>
+        <td><span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span></td>
+        <td>{{ st.current_session.code_display if st.current_session else '—' }}</td>
+        <td>{{ st.last_seen.strftime('%H:%M:%S') if st.last_seen else 'never' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No stations registered.</p>
+  {% endif %}
+</section>
+
+<section class="dashboard-section">
+  <h3>Recent Sessions</h3>
+  {% if recent_sessions %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Status</th>
+        <th>Duration</th>
+        <th>Created</th>
+        <th>Created By</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in recent_sessions %}
+      <tr>
+        <td><a href="{{ url_for('sessions.detail', session_id=s.id) }}">{{ s.code_display }}</a></td>
+        <td><span class="status-badge status-{{ s.status }}">{{ s.status.replace('_', ' ') }}</span></td>
+        <td>{{ s.duration_minutes }}m</td>
+        <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ s.created_by_user.username }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No sessions yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

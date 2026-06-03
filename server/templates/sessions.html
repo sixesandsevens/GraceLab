@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Sessions{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Sessions</h2>
+  <a href="{{ url_for('sessions.new_session') }}" class="btn btn-primary">Generate Session Code</a>
+</div>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Code</th>
+      <th>Status</th>
+      <th>Duration</th>
+      <th>Station</th>
+      <th>Created</th>
+      <th>Created By</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in sessions.items %}
+    <tr>
+      <td><a href="{{ url_for('sessions.detail', session_id=s.id) }}">{{ s.code_display }}</a></td>
+      <td><span class="status-badge status-{{ s.status }}">{{ s.status.replace('_', ' ') }}</span></td>
+      <td>{{ s.duration_minutes }}m</td>
+      <td>{{ s.station.display_name if s.station else '—' }}</td>
+      <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ s.created_by_user.username }}</td>
+      <td>
+        {% if s.status == 'created' %}
+        <form method="post" action="{{ url_for('sessions.cancel', session_id=s.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-danger"
+            onclick="return confirm('Cancel code {{ s.code_display }}?')">Cancel</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="empty-state">No sessions yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if sessions.pages > 1 %}
+<div class="pagination">
+  {% if sessions.has_prev %}
+    <a href="{{ url_for('sessions.list_sessions', page=sessions.prev_num) }}" class="btn btn-sm btn-secondary">&laquo; Prev</a>
+  {% endif %}
+  <span>Page {{ sessions.page }} of {{ sessions.pages }}</span>
+  {% if sessions.has_next %}
+    <a href="{{ url_for('sessions.list_sessions', page=sessions.next_num) }}" class="btn btn-sm btn-secondary">Next &raquo;</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

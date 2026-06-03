@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Session {{ session.code_display }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Session {{ session.code_display }}</h2>
+  <div>
+    <a href="{{ url_for('sessions.ticket', session_id=session.id) }}" class="btn btn-secondary">Print Ticket</a>
+    <a href="{{ url_for('sessions.list_sessions') }}" class="btn btn-secondary">All Sessions</a>
+  </div>
+</div>
+
+<div class="detail-grid">
+  <div class="detail-card">
+    <table class="detail-table">
+      <tr><th>Status</th><td><span class="status-badge status-{{ session.status }}">{{ session.status.replace('_',' ') }}</span></td></tr>
+      <tr><th>Duration</th><td>{{ session.duration_minutes }} minutes</td></tr>
+      <tr><th>Created</th><td>{{ session.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+      <tr><th>Created By</th><td>{{ session.created_by_user.username }}</td></tr>
+      <tr><th>Code Expires</th><td>{{ session.activation_expires_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+      <tr><th>Station</th><td>{{ session.station.display_name if session.station else '—' }}</td></tr>
+      <tr><th>Started</th><td>{{ session.started_at.strftime('%H:%M:%S') if session.started_at else '—' }}</td></tr>
+      <tr><th>Session Expires</th><td>{{ session.expires_at.strftime('%H:%M:%S') if session.expires_at else '—' }}</td></tr>
+      <tr><th>Ended</th><td>{{ session.ended_at.strftime('%H:%M:%S') if session.ended_at else '—' }}</td></tr>
+      <tr><th>End Reason</th><td>{{ session.end_reason or '—' }}</td></tr>
+      {% if session.notes %}
+      <tr><th>Notes</th><td>{{ session.notes }}</td></tr>
+      {% endif %}
+    </table>
+
+    <div class="detail-actions">
+      {% if session.status == 'created' %}
+      <form method="post" action="{{ url_for('sessions.cancel', session_id=session.id) }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger"
+          onclick="return confirm('Cancel this code?')">Cancel Code</button>
+      </form>
+      {% endif %}
+      {% if session.status == 'active' %}
+      <form method="post" action="{{ url_for('sessions.extend', session_id=session.id) }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="minutes" value="15">
+        <button type="submit" class="btn btn-secondary">+15 min</button>
+      </form>
+      <form method="post" action="{{ url_for('sessions.extend', session_id=session.id) }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="minutes" value="30">
+        <button type="submit" class="btn btn-secondary">+30 min</button>
+      </form>
+      <form method="post" action="{{ url_for('sessions.end', session_id=session.id) }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger"
+          onclick="return confirm('End this session now?')">End Session</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<section class="dashboard-section">
+  <h3>Event Log</h3>
+  {% if events %}
+  <table class="table">
+    <thead>
+      <tr><th>Time</th><th>Event</th><th>Message</th></tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <td>{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td><code>{{ e.event_type }}</code></td>
+        <td>{{ e.message or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No events recorded.</p>
+  {% endif %}
+</section>
+{% endblock %}

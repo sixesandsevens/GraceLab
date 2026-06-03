@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Session Ticket — {{ session.code_display }}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 14px;
+      color: #000;
+      background: #fff;
+    }
+
+    .ticket {
+      width: 3.5in;
+      margin: 0.5in auto;
+      padding: 0.25in;
+      border: 2px solid #000;
+    }
+
+    .ticket-org {
+      font-size: 13px;
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 0.15in;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .ticket-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.05in;
+    }
+
+    .ticket-code {
+      font-size: 36px;
+      font-weight: bold;
+      text-align: center;
+      letter-spacing: 0.1em;
+      margin: 0.1in 0;
+    }
+
+    .ticket-duration {
+      font-size: 13px;
+      text-align: center;
+      margin-bottom: 0.15in;
+    }
+
+    .ticket-divider {
+      border: none;
+      border-top: 1px dashed #000;
+      margin: 0.12in 0;
+    }
+
+    .ticket-instruction {
+      font-size: 11px;
+      line-height: 1.5;
+      margin-bottom: 0.1in;
+    }
+
+    .ticket-warning {
+      font-size: 10px;
+      line-height: 1.4;
+      color: #333;
+    }
+
+    .ticket-footer {
+      font-size: 11px;
+      font-style: italic;
+      text-align: center;
+      margin-top: 0.12in;
+    }
+
+    .screen-only {
+      text-align: center;
+      margin: 1rem;
+    }
+
+    .screen-only a {
+      margin: 0 0.5rem;
+    }
+
+    @media print {
+      .screen-only { display: none; }
+      body { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="screen-only">
+  <a href="javascript:window.print()" style="
+    display:inline-block; padding:0.5rem 1.25rem;
+    background:#1a56db; color:#fff; text-decoration:none;
+    border-radius:4px; font-family:sans-serif; font-size:14px;">
+    Print Ticket
+  </a>
+  <a href="{{ url_for('sessions.new_session') }}" style="
+    display:inline-block; padding:0.5rem 1.25rem;
+    background:#e5e7eb; color:#111; text-decoration:none;
+    border-radius:4px; font-family:sans-serif; font-size:14px;">
+    New Code
+  </a>
+  <a href="{{ url_for('dashboard.index') }}" style="
+    display:inline-block; padding:0.5rem 1.25rem;
+    background:#e5e7eb; color:#111; text-decoration:none;
+    border-radius:4px; font-family:sans-serif; font-size:14px;">
+    Dashboard
+  </a>
+</div>
+
+<div class="ticket">
+  <div class="ticket-org">{{ org_name }}<br>Computer Lab</div>
+
+  <hr class="ticket-divider">
+
+  <div class="ticket-label">Session Code</div>
+  <div class="ticket-code">{{ session.code_display }}</div>
+  <div class="ticket-duration">Time Limit: {{ session.duration_minutes }} minutes</div>
+
+  <hr class="ticket-divider">
+
+  <div class="ticket-instruction">
+    Enter this code at any available lab computer to begin your session.
+  </div>
+
+  <div class="ticket-warning">
+    Your files, downloads, and browser history will be deleted when your session ends.
+  </div>
+
+  <hr class="ticket-divider">
+
+  <div class="ticket-footer">{{ ticket_footer }}</div>
+</div>
+
+</body>
+</html>
