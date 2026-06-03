@@ -57,10 +57,17 @@ def _server_time():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def _update_station_seen(station, status=None):
+def _update_station_seen(station, reported_status=None):
     station.last_seen = datetime.now(timezone.utc)
-    if status and station.status not in ("out_of_service",):
-        station.status = status
+    if station.status in ("out_of_service", "needs_attention"):
+        return
+    # Server is authoritative: if a session is running, keep in_use regardless of what
+    # the client reports. A buggy client can't accidentally free a session by heartbeating
+    # "available" while a session record still exists.
+    if station.current_session_id:
+        station.status = "in_use"
+    elif reported_status in ("available", "in_use", "needs_attention"):
+        station.status = reported_status
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +85,7 @@ def heartbeat(station):
     if reported_status not in allowed:
         reported_status = "available"
 
-    _update_station_seen(station, reported_status)
+    _update_station_seen(station, reported_status=reported_status)
     db.session.commit()
 
     return jsonify({
@@ -161,6 +168,12 @@ def session_start(station):
     if not session_id:
         return jsonify({"ok": False, "error": "missing_session_id"}), 400
 
+    if station.status == "out_of_service":
+        return jsonify({"ok": False, "error": "station_out_of_service"}), 403
+
+    if station.current_session_id:
+        return jsonify({"ok": False, "error": "station_already_in_session"}), 409
+
     session = db.session.get(Session, session_id)
     if not session or session.status != "created":
         return jsonify({"ok": False, "error": "session_not_found_or_not_startable"}), 404
@@ -207,6 +220,9 @@ def session_end(station):
     if not session:
         return jsonify({"ok": False, "error": "session_not_found"}), 404
 
+    if session.station_id is not None and session.station_id != station.id:
+        return jsonify({"ok": False, "error": "session_not_assigned_to_station"}), 403
+
     if session.status == "active":
         now = datetime.now(timezone.utc)
         session.status = end_reason if end_reason in (
@@ -243,6 +259,11 @@ def session_event(station):
     }
     if event_type not in allowed_event_types:
         event_type = "client_error"
+
+    if session_id is not None:
+        target = db.session.get(Session, session_id)
+        if target and target.station_id is not None and target.station_id != station.id:
+            return jsonify({"ok": False, "error": "session_not_assigned_to_station"}), 403
 
     _log_event(session_id, station.id, event_type, message)
 

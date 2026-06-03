@@ -1,0 +1,21 @@
+[server]
+url = http://192.168.1.50:5000
+
+[station]
+hostname = LAB-PC-01
+token = replace-with-station-token
+
+[session]
+warning_minutes = 5
+heartbeat_interval_seconds = 30
+
+[paths]
+reset_script = /opt/gracelab-client/reset_guest_home.sh
+start_script = /opt/gracelab-client/start_guest_session.sh
+end_script = /opt/gracelab-client/end_guest_session.sh
+
+[ui]
+# Fullscreen mode. Set to false for windowed testing.
+fullscreen = true
+# Organization name shown on the idle screen (overridden by server config if reachable)
+organization_name = Grace Marketplace

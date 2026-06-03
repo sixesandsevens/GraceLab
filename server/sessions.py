@@ -1,4 +1,4 @@
-import random
+import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
@@ -24,7 +24,7 @@ class NewSessionForm(FlaskForm):
 
 def generate_code():
     """Generate a XXX-XXX digit session code."""
-    digits = [random.choice(string.digits) for _ in range(6)]
+    digits = [secrets.choice(string.digits) for _ in range(6)]
     return f"{''.join(digits[:3])}-{''.join(digits[3:])}"
 
 
@@ -173,6 +173,12 @@ def end(session_id):
         event_type="session_ended_by_staff",
         message=f"Ended by {current_user.username}.",
     ))
+
+    if session.station:
+        session.station.current_session_id = None
+        if session.station.status not in ("out_of_service", "needs_attention"):
+            session.station.status = "available"
+
     db.session.commit()
     flash(f"Session {session.code_display} ended.", "info")
     return redirect(url_for("dashboard.index"))

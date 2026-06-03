@@ -1,0 +1,675 @@
+#!/usr/bin/env python3
+"""
+GraceLab workstation client.
+
+Displays a fullscreen code-entry screen, validates codes against the server,
+manages a timed guest session, and reports events.
+
+Dependencies: Python 3 stdlib only (tkinter is part of stdlib).
+Config: client_config.ini (copy from client_config.ini.example)
+
+States:
+  IDLE -> VALIDATING -> SESSION_STARTING -> SESSION_ACTIVE
+       -> SESSION_WARNING -> SESSION_ENDING -> RESETTING -> IDLE
+
+  Any state -> NEEDS_ATTENTION  (on unrecoverable error)
+  IDLE      -> OFFLINE          (server unreachable)
+  OFFLINE   -> IDLE             (server back)
+"""
+
+import configparser
+import json
+import logging
+import os
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+import tkinter as tk
+from tkinter import font as tkfont
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+log = logging.getLogger("gracelab")
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+_CONFIG_PATHS = [
+    os.path.join(os.path.dirname(__file__), "client_config.ini"),
+    "/etc/gracelab/client_config.ini",
+    "/opt/gracelab-client/client_config.ini",
+]
+
+
+def load_config():
+    cfg = configparser.ConfigParser()
+    cfg.read_dict({
+        "server":  {"url": "http://localhost:5000"},
+        "station": {"hostname": "LAB-PC-01", "token": ""},
+        "session": {"warning_minutes": "5", "heartbeat_interval_seconds": "30"},
+        "paths":   {
+            "reset_script": "",
+            "start_script": "",
+            "end_script": "",
+        },
+        "ui": {"fullscreen": "true", "organization_name": "Grace Marketplace"},
+    })
+    read = cfg.read(_CONFIG_PATHS)
+    if not read:
+        log.warning("No client_config.ini found; using built-in defaults.")
+    return cfg
+
+# ---------------------------------------------------------------------------
+# API client
+# ---------------------------------------------------------------------------
+
+class APIError(Exception):
+    pass
+
+
+class GraceLabAPI:
+    def __init__(self, cfg):
+        self._base = cfg.get("server", "url").rstrip("/")
+        self._hostname = cfg.get("station", "hostname")
+        self._token = cfg.get("station", "token")
+        self._timeout = 8
+
+    def _headers(self):
+        return {
+            "Content-Type": "application/json",
+            "X-Station-ID": self._hostname,
+            "Authorization": f"Bearer {self._token}",
+        }
+
+    def _post(self, path, body):
+        url = f"{self._base}{path}"
+        data = json.dumps(body).encode()
+        req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read())
+            except Exception:
+                raise APIError(f"HTTP {e.code}")
+        except (urllib.error.URLError, OSError) as e:
+            raise APIError(f"Connection failed: {e}")
+
+    def _get(self, path):
+        url = f"{self._base}{path}"
+        req = urllib.request.Request(url, headers=self._headers(), method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                return json.loads(resp.read())
+        except (urllib.error.URLError, OSError) as e:
+            raise APIError(f"Connection failed: {e}")
+
+    def heartbeat(self, status, current_session_id=None):
+        return self._post("/api/station/heartbeat", {
+            "hostname": self._hostname,
+            "status": status,
+            "current_session_id": current_session_id,
+            "client_version": "0.1.0",
+        })
+
+    def get_config(self):
+        return self._get("/api/station/config")
+
+    def validate(self, code):
+        return self._post("/api/session/validate", {"code": code})
+
+    def start(self, session_id):
+        return self._post("/api/session/start", {
+            "session_id": session_id,
+            "hostname": self._hostname,
+        })
+
+    def end(self, session_id, reason="expired"):
+        return self._post("/api/session/end", {
+            "session_id": session_id,
+            "end_reason": reason,
+        })
+
+    def event(self, session_id, event_type, message=None):
+        return self._post("/api/session/event", {
+            "session_id": session_id,
+            "event_type": event_type,
+            "message": message,
+        })
+
+# ---------------------------------------------------------------------------
+# Colors / layout constants
+# ---------------------------------------------------------------------------
+
+BG          = "#111827"
+FG          = "#f9fafb"
+FG_MUTED    = "#9ca3af"
+ACCENT      = "#1a56db"
+ACCENT_DARK = "#1643b5"
+WARN_BG     = "#78350f"
+WARN_FG     = "#fef3c7"
+ERROR_FG    = "#fca5a5"
+SUCCESS_FG  = "#86efac"
+ENTRY_BG    = "#1f2937"
+ENTRY_FG    = "#f9fafb"
+BTN_BG      = ACCENT
+BTN_FG      = "#ffffff"
+
+PAD = 20
+
+# ---------------------------------------------------------------------------
+# Main application
+# ---------------------------------------------------------------------------
+
+class GraceLabClient:
+
+    # --- States ---
+    IDLE            = "IDLE"
+    VALIDATING      = "VALIDATING"
+    SESSION_STARTING = "SESSION_STARTING"
+    SESSION_ACTIVE  = "SESSION_ACTIVE"
+    SESSION_WARNING = "SESSION_WARNING"
+    SESSION_ENDING  = "SESSION_ENDING"
+    RESETTING       = "RESETTING"
+    NEEDS_ATTENTION = "NEEDS_ATTENTION"
+    OFFLINE         = "OFFLINE"
+
+    def __init__(self, root, cfg):
+        self.root = root
+        self.cfg = cfg
+        self.api = GraceLabAPI(cfg)
+
+        self._state = self.IDLE
+        self._session_id = None
+        self._expires_at = None          # float epoch
+        self._warning_seconds = int(cfg.get("session", "warning_minutes")) * 60
+        self._heartbeat_interval = int(cfg.get("session", "heartbeat_interval_seconds"))
+        self._org_name = cfg.get("ui", "organization_name")
+        self._fullscreen = cfg.getboolean("ui", "fullscreen")
+
+        self._warning_fired = False
+        self._timer_job = None           # after() handle for session countdown
+        self._heartbeat_job = None
+
+        self._build_ui()
+        self._show_idle()
+        self._schedule_heartbeat()
+
+        # Fetch org name from server (non-blocking)
+        threading.Thread(target=self._fetch_server_config, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self):
+        self.root.configure(bg=BG)
+        self.root.title("GraceLab")
+
+        if self._fullscreen:
+            self.root.attributes("-fullscreen", True)
+        else:
+            self.root.geometry("900x600")
+
+        # Prevent accidental close / alt-F4
+        self.root.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        # Escape only works in NEEDS_ATTENTION to allow admin recovery
+        self.root.bind("<Escape>", self._on_escape)
+
+        self._main = tk.Frame(self.root, bg=BG)
+        self._main.pack(fill=tk.BOTH, expand=True)
+
+        self._make_fonts()
+
+    def _make_fonts(self):
+        self._f_org     = tkfont.Font(family="DejaVu Sans", size=18, weight="bold")
+        self._f_heading = tkfont.Font(family="DejaVu Sans", size=28, weight="bold")
+        self._f_body    = tkfont.Font(family="DejaVu Sans", size=14)
+        self._f_small   = tkfont.Font(family="DejaVu Sans", size=11)
+        self._f_code    = tkfont.Font(family="DejaVu Sans Mono", size=36, weight="bold")
+        self._f_timer   = tkfont.Font(family="DejaVu Sans Mono", size=48, weight="bold")
+        self._f_entry   = tkfont.Font(family="DejaVu Sans Mono", size=32)
+        self._f_btn     = tkfont.Font(family="DejaVu Sans", size=16, weight="bold")
+
+    def _clear(self):
+        for w in self._main.winfo_children():
+            w.destroy()
+
+    # ------------------------------------------------------------------
+    # Screens
+    # ------------------------------------------------------------------
+
+    def _show_idle(self):
+        self._set_state(self.IDLE)
+        self._cancel_timer()
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(outer, text=self._org_name, bg=BG, fg=FG_MUTED,
+                 font=self._f_org).pack(pady=(0, 4))
+        tk.Label(outer, text="Computer Lab", bg=BG, fg=FG_MUTED,
+                 font=self._f_body).pack(pady=(0, 40))
+
+        tk.Label(outer, text="Enter Session Code", bg=BG, fg=FG,
+                 font=self._f_heading).pack(pady=(0, 20))
+
+        # Code entry: auto-inserts the dash after 3 digits
+        entry_frame = tk.Frame(outer, bg=BG)
+        entry_frame.pack(pady=(0, 8))
+
+        self._code_var = tk.StringVar()
+        self._code_entry = tk.Entry(
+            entry_frame,
+            textvariable=self._code_var,
+            font=self._f_entry,
+            width=9,
+            justify=tk.CENTER,
+            bg=ENTRY_BG, fg=ENTRY_FG,
+            insertbackground=ENTRY_FG,
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=2,
+            highlightcolor=ACCENT,
+            highlightbackground="#374151",
+        )
+        self._code_entry.pack(ipady=10, ipadx=10)
+        self._code_entry.focus_set()
+
+        # Format entry as XXX-XXX
+        self._code_var.trace_add("write", self._format_code_entry)
+        self._code_entry.bind("<Return>", lambda e: self._submit_code())
+
+        self._msg_label = tk.Label(outer, text="", bg=BG, fg=ERROR_FG, font=self._f_small)
+        self._msg_label.pack(pady=(6, 0))
+
+        tk.Button(
+            outer, text="Start Session",
+            font=self._f_btn, bg=BTN_BG, fg=BTN_FG,
+            activebackground=ACCENT_DARK, activeforeground=BTN_FG,
+            relief=tk.FLAT, cursor="hand2", padx=30, pady=12,
+            command=self._submit_code,
+        ).pack(pady=(20, 0))
+
+        tk.Label(outer, text="Ask staff if you need a session code.",
+                 bg=BG, fg=FG_MUTED, font=self._f_small).pack(pady=(30, 4))
+        tk.Label(outer, text="Files saved on this computer are deleted when your session ends.",
+                 bg=BG, fg=FG_MUTED, font=self._f_small).pack()
+
+    def _show_validating(self):
+        self._set_state(self.VALIDATING)
+        self._clear()
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        tk.Label(outer, text="Checking code…", bg=BG, fg=FG, font=self._f_heading).pack()
+
+    def _show_session_active(self):
+        self._set_state(self.SESSION_ACTIVE)
+        self._warning_fired = False
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(outer, text=self._org_name, bg=BG, fg=FG_MUTED, font=self._f_org).pack(pady=(0, 30))
+        tk.Label(outer, text="Session Active", bg=BG, fg=SUCCESS_FG, font=self._f_heading).pack()
+
+        self._timer_label = tk.Label(outer, text="--:--", bg=BG, fg=FG, font=self._f_timer)
+        self._timer_label.pack(pady=20)
+
+        tk.Label(outer, text="Time remaining", bg=BG, fg=FG_MUTED, font=self._f_body).pack()
+        tk.Label(outer,
+                 text="Files saved here will be deleted when your session ends.",
+                 bg=BG, fg=FG_MUTED, font=self._f_small).pack(pady=(30, 0))
+
+        self._tick()
+
+    def _show_warning(self):
+        self._set_state(self.SESSION_WARNING)
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=WARN_BG)
+        outer.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        inner = tk.Frame(outer, bg=WARN_BG)
+        inner.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(inner, text="⚠  Session Ending Soon", bg=WARN_BG, fg=WARN_FG,
+                 font=self._f_heading).pack(pady=(0, 20))
+
+        self._timer_label = tk.Label(inner, text="--:--", bg=WARN_BG, fg=WARN_FG,
+                                     font=self._f_timer)
+        self._timer_label.pack(pady=10)
+
+        tk.Label(inner, text="Please save anything important to your own storage.",
+                 bg=WARN_BG, fg=WARN_FG, font=self._f_body).pack(pady=(10, 4))
+        tk.Label(inner, text="Ask staff now if you need more time.",
+                 bg=WARN_BG, fg=WARN_FG, font=self._f_body).pack()
+
+        self._tick()
+
+    def _show_ending(self, message="Your session has ended."):
+        self._cancel_timer()
+        self._set_state(self.SESSION_ENDING)
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(outer, text=message, bg=BG, fg=FG, font=self._f_heading).pack(pady=(0, 16))
+        tk.Label(outer, text="This computer is resetting for the next user.",
+                 bg=BG, fg=FG_MUTED, font=self._f_body).pack()
+
+    def _show_resetting(self):
+        self._set_state(self.RESETTING)
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(outer, text="Resetting…", bg=BG, fg=FG_MUTED, font=self._f_heading).pack()
+
+    def _show_needs_attention(self, reason=""):
+        self._set_state(self.NEEDS_ATTENTION)
+        self._cancel_timer()
+        self._clear()
+
+        outer = tk.Frame(self._main, bg="#1c0a00")
+        outer.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        inner = tk.Frame(outer, bg="#1c0a00")
+        inner.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(inner, text="This station needs attention.", bg="#1c0a00", fg=ERROR_FG,
+                 font=self._f_heading).pack(pady=(0, 12))
+        if reason:
+            tk.Label(inner, text=reason, bg="#1c0a00", fg=FG_MUTED,
+                     font=self._f_small, wraplength=500, justify=tk.CENTER).pack()
+        tk.Label(inner, text="Please ask staff for help.",
+                 bg="#1c0a00", fg=FG_MUTED, font=self._f_body).pack(pady=(20, 0))
+
+    def _show_offline(self):
+        self._set_state(self.OFFLINE)
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(outer, text="Server Offline", bg=BG, fg=ERROR_FG, font=self._f_heading).pack()
+        tk.Label(outer,
+                 text="This computer cannot reach the GraceLab server.\nPlease ask staff for help.",
+                 bg=BG, fg=FG_MUTED, font=self._f_body, justify=tk.CENTER).pack(pady=20)
+
+    # ------------------------------------------------------------------
+    # Code entry
+    # ------------------------------------------------------------------
+
+    def _format_code_entry(self, *_):
+        raw = self._code_var.get().replace("-", "")
+        raw = "".join(c for c in raw if c.isdigit())[:6]
+        if len(raw) > 3:
+            formatted = raw[:3] + "-" + raw[3:]
+        else:
+            formatted = raw
+        # Prevent recursive trace
+        self._code_var.trace_remove("write", self._code_var.trace_info()[0][1])
+        self._code_var.set(formatted)
+        self._code_entry.icursor(tk.END)
+        self._code_var.trace_add("write", self._format_code_entry)
+
+    def _submit_code(self):
+        if self._state != self.IDLE:
+            return
+        code = self._code_var.get().strip()
+        if not code:
+            return
+        self._show_validating()
+        threading.Thread(target=self._validate_and_start, args=(code,), daemon=True).start()
+
+    def _validate_and_start(self, code):
+        try:
+            result = self.api.validate(code)
+        except APIError as e:
+            log.warning("Validate failed (server unreachable?): %s", e)
+            self.root.after(0, self._show_offline)
+            self.root.after(5000, self._reconnect_loop)
+            return
+
+        if not result.get("ok"):
+            self.root.after(0, lambda: self._idle_with_error(
+                "That code is invalid, expired, or already used.\n"
+                "Please check the code or ask staff for help."
+            ))
+            return
+
+        session_id = result["session_id"]
+        warning_secs = result.get("warning_minutes", 5) * 60
+        self._warning_seconds = warning_secs
+
+        try:
+            start_result = self.api.start(session_id)
+        except APIError as e:
+            log.warning("Start failed: %s", e)
+            self.root.after(0, lambda: self._idle_with_error(
+                "Could not start session. Please ask staff for help."
+            ))
+            return
+
+        if not start_result.get("ok"):
+            err = start_result.get("error", "unknown")
+            log.warning("Start rejected: %s", err)
+            self.root.after(0, lambda: self._idle_with_error(
+                "Could not start session. Please ask staff for help."
+            ))
+            return
+
+        expires_str = start_result.get("expires_at", "")
+        self._session_id = session_id
+        self._expires_at = self._parse_expires(expires_str)
+        log.info("Session %s started, expires %s", session_id, expires_str)
+        self.root.after(0, self._show_session_active)
+
+    def _idle_with_error(self, msg):
+        self._show_idle()
+        self._msg_label.config(text=msg)
+
+    @staticmethod
+    def _parse_expires(s):
+        import datetime
+        try:
+            dt = datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+            return dt.replace(tzinfo=datetime.timezone.utc).timestamp()
+        except Exception:
+            return time.time() + 3600
+
+    # ------------------------------------------------------------------
+    # Session timer
+    # ------------------------------------------------------------------
+
+    def _tick(self):
+        if self._state not in (self.SESSION_ACTIVE, self.SESSION_WARNING):
+            return
+
+        remaining = max(0, self._expires_at - time.time())
+        mins, secs = divmod(int(remaining), 60)
+        self._timer_label.config(text=f"{mins:02d}:{secs:02d}")
+
+        if remaining <= 0:
+            self._on_session_expired()
+            return
+
+        if remaining <= self._warning_seconds and not self._warning_fired:
+            self._warning_fired = True
+            self._on_warning()
+
+        self._timer_job = self.root.after(1000, self._tick)
+
+    def _cancel_timer(self):
+        if self._timer_job:
+            self.root.after_cancel(self._timer_job)
+            self._timer_job = None
+
+    def _on_warning(self):
+        self._show_warning()
+        threading.Thread(target=self._send_warning_event, daemon=True).start()
+
+    def _send_warning_event(self):
+        try:
+            self.api.event(self._session_id, "session_warning", "Warning screen shown.")
+        except APIError:
+            pass
+
+    def _on_session_expired(self):
+        self._cancel_timer()
+        self._show_ending()
+        threading.Thread(target=self._end_and_reset, args=("expired",), daemon=True).start()
+
+    def _end_and_reset(self, reason):
+        sid = self._session_id
+        try:
+            self.api.end(sid, reason)
+        except APIError as e:
+            log.warning("Could not report session end: %s", e)
+
+        self.root.after(0, self._show_resetting)
+        self._run_reset()
+
+    def _run_reset(self):
+        reset_script = self.cfg.get("paths", "reset_script")
+        if reset_script and os.path.isfile(reset_script):
+            log.info("Running reset script: %s", reset_script)
+            try:
+                self.api.event(self._session_id, "profile_reset_started")
+            except APIError:
+                pass
+            try:
+                subprocess.run(
+                    [reset_script],
+                    timeout=120,
+                    check=True,
+                )
+                log.info("Reset script completed.")
+                try:
+                    self.api.event(self._session_id, "profile_reset_success",
+                                   "Guest profile reset completed.")
+                except APIError:
+                    pass
+            except Exception as e:
+                log.error("Reset script failed: %s", e)
+                try:
+                    self.api.event(self._session_id, "profile_reset_failed", str(e))
+                except APIError:
+                    pass
+                self.root.after(0, lambda: self._show_needs_attention(
+                    f"Profile reset failed: {e}"
+                ))
+                return
+        else:
+            log.info("No reset script configured — skipping profile reset.")
+
+        self._session_id = None
+        self._expires_at = None
+        self.root.after(0, self._show_idle)
+
+    # ------------------------------------------------------------------
+    # Heartbeat
+    # ------------------------------------------------------------------
+
+    def _schedule_heartbeat(self):
+        self._heartbeat_job = self.root.after(
+            self._heartbeat_interval * 1000,
+            self._heartbeat_tick,
+        )
+
+    def _heartbeat_tick(self):
+        threading.Thread(target=self._send_heartbeat, daemon=True).start()
+
+    def _send_heartbeat(self):
+        status = "in_use" if self._state in (
+            self.SESSION_ACTIVE, self.SESSION_WARNING, self.SESSION_STARTING
+        ) else "available"
+        try:
+            self.api.heartbeat(status, self._session_id)
+            if self._state == self.OFFLINE:
+                log.info("Server back online.")
+                self.root.after(0, self._show_idle)
+        except APIError as e:
+            log.warning("Heartbeat failed: %s", e)
+            if self._state == self.IDLE:
+                self.root.after(0, self._show_offline)
+        finally:
+            self._schedule_heartbeat()
+
+    def _reconnect_loop(self):
+        if self._state != self.OFFLINE:
+            return
+        threading.Thread(target=self._try_reconnect, daemon=True).start()
+
+    def _try_reconnect(self):
+        try:
+            self.api.heartbeat("available")
+            log.info("Reconnected to server.")
+            self.root.after(0, self._show_idle)
+        except APIError:
+            self.root.after(10000, self._reconnect_loop)
+
+    # ------------------------------------------------------------------
+    # Server config fetch
+    # ------------------------------------------------------------------
+
+    def _fetch_server_config(self):
+        try:
+            result = self.api.get_config()
+            if result.get("ok") and result.get("organization_name"):
+                self._org_name = result["organization_name"]
+        except APIError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Misc
+    # ------------------------------------------------------------------
+
+    def _set_state(self, state):
+        log.info("State: %s -> %s", self._state, state)
+        self._state = state
+
+    def _on_escape(self, event):
+        # Only allow exiting fullscreen in NEEDS_ATTENTION so labadmin
+        # can recover without a full reboot. In all other states, ignore.
+        if self._state == self.NEEDS_ATTENTION:
+            self.root.attributes("-fullscreen", False)
+            self.root.geometry("900x600")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    cfg = load_config()
+
+    if not cfg.get("station", "token"):
+        log.error("No station token configured. Edit client_config.ini.")
+        sys.exit(1)
+
+    root = tk.Tk()
+    app = GraceLabClient(root, cfg)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
