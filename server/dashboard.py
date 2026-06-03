@@ -7,7 +7,6 @@ dashboard_bp = Blueprint("dashboard", __name__)
 
 
 @dashboard_bp.route("/")
-@dashboard_bp.route("/dashboard")
 @login_required
 def index():
     now = datetime.now(timezone.utc)
@@ -19,28 +18,29 @@ def index():
         .all()
     )
 
+    # Unused codes staff may need to reprint or cancel
+    pending_codes = (
+        Session.query
+        .filter_by(status="created")
+        .order_by(Session.created_at.desc())
+        .all()
+    )
+
     stations = Station.query.order_by(Station.display_name.asc()).all()
 
     recent_sessions = (
         Session.query
-        .filter(Session.status != "created")
+        .filter(Session.status.notin_(["created"]))
         .order_by(Session.created_at.desc())
         .limit(20)
-        .all()
-    )
-
-    recent_events = (
-        SessionEvent.query
-        .order_by(SessionEvent.created_at.desc())
-        .limit(10)
         .all()
     )
 
     return render_template(
         "dashboard.html",
         active_sessions=active_sessions,
+        pending_codes=pending_codes,
         stations=stations,
         recent_sessions=recent_sessions,
-        recent_events=recent_events,
         now=now,
     )

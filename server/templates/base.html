@@ -15,6 +15,7 @@
     <li><a href="{{ url_for('dashboard.index') }}" {% if request.endpoint == 'dashboard.index' %}class="active"{% endif %}>Dashboard</a></li>
     <li><a href="{{ url_for('sessions.new_session') }}" {% if request.endpoint == 'sessions.new_session' %}class="active"{% endif %}>New Code</a></li>
     <li><a href="{{ url_for('sessions.list_sessions') }}" {% if request.endpoint and request.endpoint.startswith('sessions.') %}class="active"{% endif %}>Sessions</a></li>
+    <li><a href="{{ url_for('stations.list_stations') }}" {% if request.endpoint and request.endpoint.startswith('stations.') %}class="active"{% endif %}>Stations</a></li>
   </ul>
   <div class="navbar-user">
     {{ current_user.username }}

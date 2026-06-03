@@ -86,6 +86,46 @@
 </section>
 
 <section class="dashboard-section">
+  <h3>Unused Codes</h3>
+  {% if pending_codes %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Duration</th>
+        <th>Created</th>
+        <th>Code Expires</th>
+        <th>Created By</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in pending_codes %}
+      {% set expired = s.activation_expires_at < now %}
+      <tr class="{% if expired %}row-warning{% endif %}">
+        <td><a href="{{ url_for('sessions.ticket', session_id=s.id) }}"><strong>{{ s.code_display }}</strong></a></td>
+        <td>{{ s.duration_minutes }}m</td>
+        <td>{{ s.created_at.strftime('%H:%M') }}</td>
+        <td>{{ s.activation_expires_at.strftime('%H:%M') }}{% if expired %} <span class="status-badge status-expired">expired</span>{% endif %}</td>
+        <td>{{ s.created_by_user.username }}</td>
+        <td>
+          <a href="{{ url_for('sessions.ticket', session_id=s.id) }}" class="btn btn-sm btn-secondary">Reprint</a>
+          <form method="post" action="{{ url_for('sessions.cancel', session_id=s.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-danger"
+              onclick="return confirm('Cancel code {{ s.code_display }}?')">Cancel</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No unused codes.</p>
+  {% endif %}
+</section>
+
+<section class="dashboard-section">
   <h3>Recent Sessions</h3>
   {% if recent_sessions %}
   <table class="table">

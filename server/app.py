@@ -20,10 +20,14 @@ def create_app(config_name=None):
     from auth import auth_bp
     from dashboard import dashboard_bp
     from sessions import sessions_bp
+    from stations import stations_bp
+    from api import api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(sessions_bp)
+    app.register_blueprint(stations_bp)
+    app.register_blueprint(api_bp)
 
     return app
 

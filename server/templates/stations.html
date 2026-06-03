@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Stations{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Lab Stations</h2>
+  {% if current_user.is_admin() %}
+  <a href="{{ url_for('stations.new_station') }}" class="btn btn-primary">Register Station</a>
+  {% endif %}
+</div>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Station</th>
+      <th>Hostname</th>
+      <th>Status</th>
+      <th>Current Session</th>
+      <th>Last Seen</th>
+      <th>Notes</th>
+      {% if current_user.is_admin() %}<th>Actions</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for st in stations %}
+    <tr>
+      <td><strong>{{ st.display_name }}</strong></td>
+      <td><code>{{ st.hostname }}</code></td>
+      <td><span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span></td>
+      <td>
+        {% if st.current_session %}
+          <a href="{{ url_for('sessions.detail', session_id=st.current_session.id) }}">{{ st.current_session.code_display }}</a>
+        {% else %}—{% endif %}
+      </td>
+      <td>{{ st.last_seen.strftime('%Y-%m-%d %H:%M:%S') if st.last_seen else 'never' }}</td>
+      <td>{{ st.notes or '' }}</td>
+      {% if current_user.is_admin() %}
+      <td class="action-cell">
+        {% if st.status != 'out_of_service' %}
+        <form method="post" action="{{ url_for('stations.mark_out_of_service', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-danger"
+            onclick="return confirm('Mark {{ st.display_name }} out of service?')">Out of Service</button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('stations.return_to_service', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-secondary">Return to Service</button>
+        </form>
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="empty-state">No stations registered.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

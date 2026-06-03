@@ -35,7 +35,9 @@ def login():
             user.last_login_at = datetime.now(timezone.utc)
             db.session.commit()
             next_page = request.args.get("next")
-            return redirect(next_page or url_for("dashboard.index"))
+            if not next_page or not next_page.startswith("/"):
+                next_page = url_for("dashboard.index")
+            return redirect(next_page)
         flash("Invalid username or password.", "danger")
 
     return render_template("login.html", form=form)
