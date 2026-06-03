@@ -13,9 +13,15 @@ heartbeat_interval_seconds = 30
 sync_interval_seconds = 12
 
 [paths]
-reset_script = /opt/gracelab-client/reset_guest_home.sh
-start_script = /opt/gracelab-client/start_guest_session.sh
-end_script = /opt/gracelab-client/end_guest_session.sh
+# Production install paths (Phase 4B)
+# reset_script = /opt/gracelab-client/scripts/reset_guest_home.sh
+# start_script = /opt/gracelab-client/scripts/start_guest_session.sh
+# end_script   = /opt/gracelab-client/scripts/end_guest_session.sh
+#
+# For local dev/testing — point at the repo scripts directory:
+reset_script = scripts/reset_guest_home.sh
+start_script = scripts/start_guest_session.sh
+end_script   = scripts/end_guest_session.sh
 
 [ui]
 # Fullscreen mode. Set to false for windowed testing.

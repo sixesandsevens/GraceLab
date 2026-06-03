@@ -57,7 +57,8 @@ def load_config():
     cfg.read_dict({
         "server":  {"url": "http://localhost:5000"},
         "station": {"hostname": "LAB-PC-01", "token": ""},
-        "session": {"warning_minutes": "5", "heartbeat_interval_seconds": "30"},
+        "session": {"warning_minutes": "5", "heartbeat_interval_seconds": "30",
+                    "sync_interval_seconds": "12"},
         "paths":   {
             "reset_script": "",
             "start_script": "",
@@ -199,7 +200,7 @@ class GraceLabClient:
         self._expires_at = None          # float epoch
         self._warning_seconds = int(cfg.get("session", "warning_minutes")) * 60
         self._heartbeat_interval = int(cfg.get("session", "heartbeat_interval_seconds"))
-        self._sync_interval = int(cfg.get("session", "sync_interval_seconds", fallback="12"))
+        self._sync_interval = int(cfg.get("session", "sync_interval_seconds"))
         self._org_name = cfg.get("ui", "organization_name")
         self._fullscreen = cfg.getboolean("ui", "fullscreen")
 
@@ -495,6 +496,23 @@ class GraceLabClient:
         self._session_id = session_id
         self._expires_at = self._parse_expires(expires_str)
         log.info("Session %s started, expires %s", session_id, expires_str)
+
+        start_script = self.cfg.get("paths", "start_script")
+        start_ok = self._run_script(start_script, "start")
+        if not start_ok:
+            # Report failure and immediately end the session so the server
+            # doesn't keep the station marked in_use.
+            try:
+                self.api.end(session_id, "failed")
+            except APIError:
+                pass
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Session start script failed. Please ask staff for help."
+            ))
+            self._session_id = None
+            self._expires_at = None
+            return
+
         self.root.after(0, self._show_session_active)
         self.root.after(self._sync_interval * 1000, self._sync_tick)
 
@@ -593,7 +611,14 @@ class GraceLabClient:
             log.info("Server reports session %s — ending locally.", server_status)
             self._cancel_timer()
             self._cancel_sync()
-            self._show_ending("Your session has been ended by staff.")
+            _ending_messages = {
+                "ended_by_staff": "Your session has been ended by staff.",
+                "cancelled":      "This session is no longer available.",
+                "expired":        "Your session has ended.",
+                "failed":         "This session ended due to an error.",
+            }
+            msg = _ending_messages.get(server_status, "Your session has ended.")
+            self._show_ending(msg)
             threading.Thread(target=self._end_and_reset, args=(server_status,), daemon=True).start()
             return
 
@@ -627,52 +652,106 @@ class GraceLabClient:
         self._show_ending()
         threading.Thread(target=self._end_and_reset, args=("expired",), daemon=True).start()
 
+    def _run_script(self, script_path, label, timeout=120):
+        """
+        Run a lifecycle script. Returns True on success, False on failure.
+        Logs and reports a client_error event on failure; does nothing if
+        the path is empty or the file does not exist.
+        """
+        if not script_path or not os.path.isfile(script_path):
+            if script_path:
+                log.warning("%s script not found: %s — skipping.", label, script_path)
+            else:
+                log.info("No %s script configured — skipping.", label)
+            return True
+
+        log.info("Running %s script: %s", label, script_path)
+        try:
+            result = subprocess.run(
+                [script_path],
+                timeout=timeout,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            if result.stdout.strip():
+                log.info("%s stdout: %s", label, result.stdout.strip())
+            log.info("%s script completed OK.", label)
+            return True
+        except subprocess.CalledProcessError as e:
+            msg = f"{label} script exited {e.returncode}: {e.stderr.strip() or e.stdout.strip()}"
+            log.error("%s", msg)
+            try:
+                self.api.event(self._session_id, "client_error", msg)
+            except APIError:
+                pass
+            return False
+        except subprocess.TimeoutExpired:
+            msg = f"{label} script timed out after {timeout}s."
+            log.error("%s", msg)
+            try:
+                self.api.event(self._session_id, "client_error", msg)
+            except APIError:
+                pass
+            return False
+        except Exception as e:
+            msg = f"{label} script error: {e}"
+            log.error("%s", msg)
+            try:
+                self.api.event(self._session_id, "client_error", msg)
+            except APIError:
+                pass
+            return False
+
     def _end_and_reset(self, reason):
         sid = self._session_id
+
+        # Run end_script before reporting to server so a failure marks
+        # the station needs_attention rather than silently returning available.
+        end_script = self.cfg.get("paths", "end_script")
+        end_ok = self._run_script(end_script, "end")
+
         try:
             self.api.end(sid, reason)
         except APIError as e:
             log.warning("Could not report session end: %s", e)
 
-        self.root.after(0, self._show_resetting)
-        self._run_reset()
+        if not end_ok:
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Session end script failed. Please ask staff for help."
+            ))
+            return
 
-    def _run_reset(self):
+        self.root.after(0, self._show_resetting)
+        self._run_reset(sid)
+
+    def _run_reset(self, sid):
         reset_script = self.cfg.get("paths", "reset_script")
-        if reset_script and os.path.isfile(reset_script):
-            log.info("Running reset script: %s", reset_script)
+
+        try:
+            self.api.event(sid, "profile_reset_started")
+        except APIError:
+            pass
+
+        reset_ok = self._run_script(reset_script, "reset")
+
+        if reset_ok:
             try:
-                self.api.event(self._session_id, "profile_reset_started")
+                self.api.event(sid, "profile_reset_success",
+                               "Guest profile reset completed.")
             except APIError:
                 pass
-            try:
-                subprocess.run(
-                    [reset_script],
-                    timeout=120,
-                    check=True,
-                )
-                log.info("Reset script completed.")
-                try:
-                    self.api.event(self._session_id, "profile_reset_success",
-                                   "Guest profile reset completed.")
-                except APIError:
-                    pass
-            except Exception as e:
-                log.error("Reset script failed: %s", e)
-                try:
-                    self.api.event(self._session_id, "profile_reset_failed", str(e))
-                except APIError:
-                    pass
-                self.root.after(0, lambda: self._show_needs_attention(
-                    f"Profile reset failed: {e}"
-                ))
-                return
+            self._session_id = None
+            self._expires_at = None
+            self.root.after(0, self._show_idle)
         else:
-            log.info("No reset script configured — skipping profile reset.")
-
-        self._session_id = None
-        self._expires_at = None
-        self.root.after(0, self._show_idle)
+            try:
+                self.api.event(sid, "profile_reset_failed", "Reset script failed.")
+            except APIError:
+                pass
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Profile reset failed. Please ask staff for help."
+            ))
 
     # ------------------------------------------------------------------
     # Heartbeat
