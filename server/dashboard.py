@@ -9,7 +9,7 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @dashboard_bp.route("/")
 @login_required
 def index():
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     active_sessions = (
         Session.query
