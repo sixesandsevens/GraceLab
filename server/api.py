@@ -245,6 +245,39 @@ def session_end(station):
     return jsonify({"ok": True})
 
 
+@api_bp.route("/session/status/<int:session_id>", methods=["GET"])
+@station_required
+def session_status(station, session_id):
+    """
+    Polled by the client during active sessions so staff actions (extend,
+    end) are reflected on the workstation without waiting for local expiry.
+    """
+    session = db.session.get(Session, session_id)
+    if not session:
+        return jsonify({"ok": False, "error": "session_not_found"}), 404
+
+    if session.station_id is not None and session.station_id != station.id:
+        return jsonify({"ok": False, "error": "session_not_assigned_to_station"}), 403
+
+    expires_str = (
+        session.expires_at.strftime("%Y-%m-%dT%H:%M:%S")
+        if session.expires_at else None
+    )
+
+    station_status = station.status
+    station.last_seen = datetime.now(timezone.utc)
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "session_id": session.id,
+        "status": session.status,
+        "expires_at": expires_str,
+        "server_time": _server_time(),
+        "station_status": station_status,
+    })
+
+
 @api_bp.route("/session/event", methods=["POST"])
 @station_required
 def session_event(station):

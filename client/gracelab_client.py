@@ -149,6 +149,9 @@ class GraceLabAPI:
             "message": message,
         })
 
+    def session_status(self, session_id):
+        return self._get(f"/api/session/status/{session_id}")
+
 # ---------------------------------------------------------------------------
 # Colors / layout constants
 # ---------------------------------------------------------------------------
@@ -196,12 +199,15 @@ class GraceLabClient:
         self._expires_at = None          # float epoch
         self._warning_seconds = int(cfg.get("session", "warning_minutes")) * 60
         self._heartbeat_interval = int(cfg.get("session", "heartbeat_interval_seconds"))
+        self._sync_interval = int(cfg.get("session", "sync_interval_seconds", fallback="12"))
         self._org_name = cfg.get("ui", "organization_name")
         self._fullscreen = cfg.getboolean("ui", "fullscreen")
 
         self._warning_fired = False
         self._timer_job = None           # after() handle for session countdown
         self._heartbeat_job = None
+        self._sync_job = None            # after() handle for session status poll
+        self._code_trace_id = None       # trace handle for code entry formatter
 
         self._build_ui()
         self._show_idle()
@@ -290,8 +296,8 @@ class GraceLabClient:
         self._code_entry.pack(ipady=10, ipadx=10)
         self._code_entry.focus_set()
 
-        # Format entry as XXX-XXX
-        self._code_var.trace_add("write", self._format_code_entry)
+        # Format entry as XXX-XXX; store handle so we can remove it cleanly
+        self._code_trace_id = self._code_var.trace_add("write", self._format_code_entry)
         self._code_entry.bind("<Return>", lambda e: self._submit_code())
 
         self._msg_label = tk.Label(outer, text="", bg=BG, fg=ERROR_FG, font=self._f_small)
@@ -316,6 +322,13 @@ class GraceLabClient:
         outer = tk.Frame(self._main, bg=BG)
         outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         tk.Label(outer, text="Checking code…", bg=BG, fg=FG, font=self._f_heading).pack()
+
+    def _show_session_starting(self):
+        self._set_state(self.SESSION_STARTING)
+        self._clear()
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        tk.Label(outer, text="Starting session…", bg=BG, fg=FG, font=self._f_heading).pack()
 
     def _show_session_active(self):
         self._set_state(self.SESSION_ACTIVE)
@@ -364,6 +377,7 @@ class GraceLabClient:
 
     def _show_ending(self, message="Your session has ended."):
         self._cancel_timer()
+        self._cancel_sync()
         self._set_state(self.SESSION_ENDING)
         self._clear()
 
@@ -386,6 +400,7 @@ class GraceLabClient:
     def _show_needs_attention(self, reason=""):
         self._set_state(self.NEEDS_ATTENTION)
         self._cancel_timer()
+        self._cancel_sync()
         self._clear()
 
         outer = tk.Frame(self._main, bg="#1c0a00")
@@ -421,15 +436,12 @@ class GraceLabClient:
     def _format_code_entry(self, *_):
         raw = self._code_var.get().replace("-", "")
         raw = "".join(c for c in raw if c.isdigit())[:6]
-        if len(raw) > 3:
-            formatted = raw[:3] + "-" + raw[3:]
-        else:
-            formatted = raw
-        # Prevent recursive trace
-        self._code_var.trace_remove("write", self._code_var.trace_info()[0][1])
+        formatted = raw[:3] + "-" + raw[3:] if len(raw) > 3 else raw
+        # Remove before set to prevent re-entry, restore after
+        self._code_var.trace_remove("write", self._code_trace_id)
         self._code_var.set(formatted)
         self._code_entry.icursor(tk.END)
-        self._code_var.trace_add("write", self._format_code_entry)
+        self._code_trace_id = self._code_var.trace_add("write", self._format_code_entry)
 
     def _submit_code(self):
         if self._state != self.IDLE:
@@ -460,6 +472,8 @@ class GraceLabClient:
         warning_secs = result.get("warning_minutes", 5) * 60
         self._warning_seconds = warning_secs
 
+        self.root.after(0, self._show_session_starting)
+
         try:
             start_result = self.api.start(session_id)
         except APIError as e:
@@ -482,6 +496,7 @@ class GraceLabClient:
         self._expires_at = self._parse_expires(expires_str)
         log.info("Session %s started, expires %s", session_id, expires_str)
         self.root.after(0, self._show_session_active)
+        self.root.after(self._sync_interval * 1000, self._sync_tick)
 
     def _idle_with_error(self, msg):
         self._show_idle()
@@ -523,6 +538,11 @@ class GraceLabClient:
             self.root.after_cancel(self._timer_job)
             self._timer_job = None
 
+    def _cancel_sync(self):
+        if self._sync_job:
+            self.root.after_cancel(self._sync_job)
+            self._sync_job = None
+
     def _on_warning(self):
         self._show_warning()
         threading.Thread(target=self._send_warning_event, daemon=True).start()
@@ -532,6 +552,75 @@ class GraceLabClient:
             self.api.event(self._session_id, "session_warning", "Warning screen shown.")
         except APIError:
             pass
+
+    # ------------------------------------------------------------------
+    # Session sync loop — polls server so staff actions reach the client
+    # ------------------------------------------------------------------
+
+    def _sync_tick(self):
+        if self._state not in (self.SESSION_ACTIVE, self.SESSION_WARNING):
+            return
+        threading.Thread(target=self._do_sync, daemon=True).start()
+
+    def _do_sync(self):
+        if not self._session_id:
+            return
+        try:
+            result = self.api.session_status(self._session_id)
+        except APIError as e:
+            log.warning("Session sync failed (server unreachable?): %s", e)
+            # Don't end the session — let the local timer remain authoritative
+            # if the network is temporarily unavailable.
+            self._sync_job = self.root.after(self._sync_interval * 1000, self._sync_tick)
+            return
+
+        self.root.after(0, lambda: self._handle_sync_result(result))
+
+    def _handle_sync_result(self, result):
+        if self._state not in (self.SESSION_ACTIVE, self.SESSION_WARNING):
+            return
+
+        if not result.get("ok"):
+            log.warning("Sync returned not-ok: %s", result)
+            self._sync_job = self.root.after(self._sync_interval * 1000, self._sync_tick)
+            return
+
+        server_status = result.get("status")
+        station_status = result.get("station_status")
+
+        # Staff ended the session from the dashboard
+        if server_status in ("ended_by_staff", "cancelled", "expired", "failed"):
+            log.info("Server reports session %s — ending locally.", server_status)
+            self._cancel_timer()
+            self._cancel_sync()
+            self._show_ending("Your session has been ended by staff.")
+            threading.Thread(target=self._end_and_reset, args=(server_status,), daemon=True).start()
+            return
+
+        # Station marked out of service or needs attention
+        if station_status in ("out_of_service", "needs_attention"):
+            log.warning("Station status is %s — showing attention screen.", station_status)
+            self._cancel_timer()
+            self._cancel_sync()
+            self._show_needs_attention(f"This station has been marked {station_status.replace('_', ' ')}.")
+            return
+
+        # Staff extended the session — update local expiry
+        new_expires_str = result.get("expires_at")
+        if new_expires_str:
+            new_expires = self._parse_expires(new_expires_str)
+            if new_expires != self._expires_at:
+                delta = new_expires - self._expires_at
+                log.info("Session expiry updated by %.0f seconds (server sync).", delta)
+                self._expires_at = new_expires
+                # If we were in warning state but extension pushed us back past the threshold,
+                # go back to active screen so the amber screen doesn't stay up.
+                remaining = new_expires - time.time()
+                if self._state == self.SESSION_WARNING and remaining > self._warning_seconds:
+                    self._warning_fired = False
+                    self._show_session_active()
+
+        self._sync_job = self.root.after(self._sync_interval * 1000, self._sync_tick)
 
     def _on_session_expired(self):
         self._cancel_timer()

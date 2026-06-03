@@ -8,6 +8,9 @@ token = replace-with-station-token
 [session]
 warning_minutes = 5
 heartbeat_interval_seconds = 30
+# How often to poll /api/session/status during an active session.
+# Determines how quickly staff extend/end actions reach the workstation.
+sync_interval_seconds = 12
 
 [paths]
 reset_script = /opt/gracelab-client/reset_guest_home.sh
