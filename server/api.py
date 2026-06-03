@@ -234,11 +234,16 @@ def session_end(station):
         _log_event(session.id, station.id, "session_expired" if end_reason == "expired"
                    else "session_ended_by_staff", f"Ended: {end_reason}.")
 
-    # Release the station regardless
+    # Release the station regardless, but keep needs_attention / out_of_service
+    # and also mark needs_attention for failed sessions so a script failure
+    # that called /api/session/end with reason="failed" shows on the dashboard.
     if station.current_session_id == session_id:
         station.current_session_id = None
     if station.status not in ("out_of_service", "needs_attention"):
-        station.status = "available"
+        if end_reason == "failed":
+            station.status = "needs_attention"
+        else:
+            station.status = "available"
     station.last_seen = datetime.now(timezone.utc)
 
     db.session.commit()
@@ -289,6 +294,7 @@ def session_event(station):
     allowed_event_types = {
         "session_warning", "profile_reset_started", "profile_reset_success",
         "profile_reset_failed", "client_heartbeat", "client_error",
+        "start_script_failed", "end_script_failed", "reset_script_failed",
     }
     if event_type not in allowed_event_types:
         event_type = "client_error"
@@ -300,7 +306,11 @@ def session_event(station):
 
     _log_event(session_id, station.id, event_type, message)
 
-    if event_type == "profile_reset_failed":
+    station_fatal = {
+        "start_script_failed", "end_script_failed", "reset_script_failed",
+        "profile_reset_failed",
+    }
+    if event_type in station_fatal:
         station.status = "needs_attention"
 
     station.last_seen = datetime.now(timezone.utc)

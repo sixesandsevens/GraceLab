@@ -498,7 +498,8 @@ class GraceLabClient:
         log.info("Session %s started, expires %s", session_id, expires_str)
 
         start_script = self.cfg.get("paths", "start_script")
-        start_ok = self._run_script(start_script, "start")
+        start_ok = self._run_script(start_script, "start",
+                                    failure_event="start_script_failed")
         if not start_ok:
             # Report failure and immediately end the session so the server
             # doesn't keep the station marked in_use.
@@ -652,11 +653,12 @@ class GraceLabClient:
         self._show_ending()
         threading.Thread(target=self._end_and_reset, args=("expired",), daemon=True).start()
 
-    def _run_script(self, script_path, label, timeout=120):
+    def _run_script(self, script_path, label, timeout=120, failure_event="client_error"):
         """
         Run a lifecycle script. Returns True on success, False on failure.
-        Logs and reports a client_error event on failure; does nothing if
-        the path is empty or the file does not exist.
+        Reports failure_event to the server on failure so the dashboard can
+        mark the station needs_attention. Does nothing if path is empty or
+        the file does not exist (missing script is not a failure).
         """
         if not script_path or not os.path.isfile(script_path):
             if script_path:
@@ -682,7 +684,7 @@ class GraceLabClient:
             msg = f"{label} script exited {e.returncode}: {e.stderr.strip() or e.stdout.strip()}"
             log.error("%s", msg)
             try:
-                self.api.event(self._session_id, "client_error", msg)
+                self.api.event(self._session_id, failure_event, msg)
             except APIError:
                 pass
             return False
@@ -690,7 +692,7 @@ class GraceLabClient:
             msg = f"{label} script timed out after {timeout}s."
             log.error("%s", msg)
             try:
-                self.api.event(self._session_id, "client_error", msg)
+                self.api.event(self._session_id, failure_event, msg)
             except APIError:
                 pass
             return False
@@ -698,7 +700,7 @@ class GraceLabClient:
             msg = f"{label} script error: {e}"
             log.error("%s", msg)
             try:
-                self.api.event(self._session_id, "client_error", msg)
+                self.api.event(self._session_id, failure_event, msg)
             except APIError:
                 pass
             return False
@@ -709,7 +711,8 @@ class GraceLabClient:
         # Run end_script before reporting to server so a failure marks
         # the station needs_attention rather than silently returning available.
         end_script = self.cfg.get("paths", "end_script")
-        end_ok = self._run_script(end_script, "end")
+        end_ok = self._run_script(end_script, "end",
+                                  failure_event="end_script_failed")
 
         try:
             self.api.end(sid, reason)
@@ -733,7 +736,8 @@ class GraceLabClient:
         except APIError:
             pass
 
-        reset_ok = self._run_script(reset_script, "reset")
+        reset_ok = self._run_script(reset_script, "reset",
+                                    failure_event="reset_script_failed")
 
         if reset_ok:
             try:

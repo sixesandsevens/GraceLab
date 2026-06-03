@@ -12,7 +12,7 @@
 set -euo pipefail
 
 GUEST_USER="guestlab"
-LOG="/var/log/gracelab-client.log"
+LOG="${GRACELAB_LOG:-/tmp/gracelab-client.log}"
 TIMESTAMP=$(date --iso-8601=seconds)
 
 echo "${TIMESTAMP} [end_guest_session] Hook fired." >> "$LOG"

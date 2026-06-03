@@ -14,7 +14,7 @@ set -euo pipefail
 GUEST_USER="guestlab"
 GUEST_HOME="/home/${GUEST_USER}"
 TEMPLATE_HOME="/opt/gracelab-client/template-home"
-LOG="/var/log/gracelab-client.log"
+LOG="${GRACELAB_LOG:-/tmp/gracelab-client.log}"
 TIMESTAMP=$(date --iso-8601=seconds)
 
 echo "${TIMESTAMP} [reset_guest_home] Hook fired." >> "$LOG"
