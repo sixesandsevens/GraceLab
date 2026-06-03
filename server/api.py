@@ -231,8 +231,13 @@ def session_end(station):
         session.ended_at = now
         session.end_reason = end_reason
 
-        _log_event(session.id, station.id, "session_expired" if end_reason == "expired"
-                   else "session_ended_by_staff", f"Ended: {end_reason}.")
+        if end_reason == "expired":
+            evt = "session_expired"
+        elif end_reason == "failed":
+            evt = "session_failed"
+        else:
+            evt = "session_ended_by_staff"
+        _log_event(session.id, station.id, evt, f"Ended: {end_reason}.")
 
     # Release the station regardless, but keep needs_attention / out_of_service
     # and also mark needs_attention for failed sessions so a script failure

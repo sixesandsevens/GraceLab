@@ -657,20 +657,28 @@ class GraceLabClient:
         """
         Run a lifecycle script. Returns True on success, False on failure.
         Reports failure_event to the server on failure so the dashboard can
-        mark the station needs_attention. Does nothing if path is empty or
-        the file does not exist (missing script is not a failure).
+        mark the station needs_attention. Does nothing if path is empty.
+
+        script_path may be a plain path or a command line (e.g. "sudo /path/script.sh").
+        Parsed with shlex so sudoers entries work without shell=True.
         """
-        if not script_path or not os.path.isfile(script_path):
-            if script_path:
-                log.warning("%s script not found: %s — skipping.", label, script_path)
-            else:
-                log.info("No %s script configured — skipping.", label)
+        import shlex
+        if not script_path:
+            log.info("No %s script configured — skipping.", label)
+            return True
+
+        cmd = shlex.split(script_path)
+        executable = cmd[0]
+        file_to_check = cmd[1] if executable == "sudo" and len(cmd) > 1 else executable
+
+        if not os.path.isfile(file_to_check):
+            log.warning("%s script not found: %s — skipping.", label, file_to_check)
             return True
 
         log.info("Running %s script: %s", label, script_path)
         try:
             result = subprocess.run(
-                [script_path],
+                cmd,
                 timeout=timeout,
                 check=True,
                 capture_output=True,
