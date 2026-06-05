@@ -11,7 +11,7 @@ from models import Setting
 
 DEFAULT_SETTINGS = {
     "default_session_minutes": "60",
-    "code_expiration_minutes": "30",
+    "code_expiration_minutes": "1440",
     "warning_minutes": "5",
     "organization_name": "Grace Marketplace",
     "ticket_footer": "Ask staff if you need more time.",

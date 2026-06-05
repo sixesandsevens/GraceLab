@@ -94,7 +94,7 @@
         <th>Code</th>
         <th>Duration</th>
         <th>Created</th>
-        <th>Code Expires</th>
+        <th>Valid Until</th>
         <th>Created By</th>
         <th>Actions</th>
       </tr>
@@ -106,7 +106,7 @@
         <td><a href="{{ url_for('sessions.ticket', session_id=s.id) }}"><strong>{{ s.code_display }}</strong></a></td>
         <td>{{ s.duration_minutes }}m</td>
         <td>{{ s.created_at.strftime('%H:%M') }}</td>
-        <td>{{ s.activation_expires_at.strftime('%H:%M') }}{% if expired %} <span class="status-badge status-expired">expired</span>{% endif %}</td>
+        <td>{{ s.format_expiry() }}{% if expired %} <span class="status-badge status-expired">expired</span>{% endif %}</td>
         <td>{{ s.created_by_user.username }}</td>
         <td>
           <a href="{{ url_for('sessions.ticket', session_id=s.id) }}" class="btn btn-sm btn-secondary">Reprint</a>
@@ -142,7 +142,13 @@
       {% for s in recent_sessions %}
       <tr>
         <td><a href="{{ url_for('sessions.detail', session_id=s.id) }}">{{ s.code_display }}</a></td>
-        <td><span class="status-badge status-{{ s.status }}">{{ s.status.replace('_', ' ') }}</span></td>
+        <td>
+          {% if s.status == 'used_for_extension' %}
+            <span class="status-badge status-expired">used for extension</span>
+          {% else %}
+            <span class="status-badge status-{{ s.status }}">{{ s.status.replace('_', ' ') }}</span>
+          {% endif %}
+        </td>
         <td>{{ s.duration_minutes }}m</td>
         <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
         <td>{{ s.created_by_user.username }}</td>

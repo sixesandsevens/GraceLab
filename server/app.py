@@ -8,8 +8,12 @@ def create_app(config_name=None):
     if config_name is None:
         config_name = os.environ.get("FLASK_ENV", "default")
 
+    cfg_class = config[config_name]
+    if hasattr(cfg_class, "validate"):
+        cfg_class.validate()
+
     app = Flask(__name__, instance_relative_config=True)
-    app.config.from_object(config[config_name])
+    app.config.from_object(cfg_class)
 
     os.makedirs(app.instance_path, exist_ok=True)
 

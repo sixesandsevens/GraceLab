@@ -9,7 +9,8 @@
 <div class="form-card">
   <p style="margin-bottom:1rem;color:#6b7280;font-size:0.95rem;">
     Generates multiple codes at once and opens a print-ready sheet (9 cards per page).
-    Codes are valid for 24 hours from the time of printing.
+    Unused codes are valid for 24 hours after printing — the expiration time is printed on each card.
+    Once a code is used, it cannot be reused.
   </p>
   <form method="post" action="{{ url_for('sessions.batch') }}">
     {{ form.hidden_tag() }}

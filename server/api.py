@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import Blueprint, request, jsonify, current_app
@@ -7,6 +8,47 @@ from models import Station, Session, SessionEvent, Setting
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 csrf.exempt(api_bp)
+
+# ---------------------------------------------------------------------------
+# Per-station code attempt throttle (in-process, resets on server restart)
+# 5 failures within a window → 30-second cooldown
+# ---------------------------------------------------------------------------
+_FAIL_WINDOW_SECONDS = 300   # 5 minutes rolling window
+_FAIL_LIMIT = 5              # failures before cooldown
+_COOLDOWN_SECONDS = 30       # lockout duration
+
+# { station_hostname: [(timestamp, ...), ...] }
+_fail_log: dict = defaultdict(list)
+# { station_hostname: cooldown_until_timestamp }
+_cooldown_until: dict = {}
+
+
+def _check_throttle(station_hostname):
+    """Return (allowed: bool, retry_after_seconds: int)."""
+    now = datetime.now(timezone.utc).timestamp()
+
+    # Still in cooldown?
+    until = _cooldown_until.get(station_hostname, 0)
+    if now < until:
+        return False, int(until - now)
+
+    # Prune old entries outside the rolling window
+    window_start = now - _FAIL_WINDOW_SECONDS
+    _fail_log[station_hostname] = [t for t in _fail_log[station_hostname] if t > window_start]
+    return True, 0
+
+
+def _record_failure(station_hostname):
+    now = datetime.now(timezone.utc).timestamp()
+    _fail_log[station_hostname].append(now)
+    if len(_fail_log[station_hostname]) >= _FAIL_LIMIT:
+        _cooldown_until[station_hostname] = now + _COOLDOWN_SECONDS
+        _fail_log[station_hostname] = []
+
+
+def _clear_failures(station_hostname):
+    _fail_log[station_hostname] = []
+    _cooldown_until.pop(station_hostname, None)
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +165,16 @@ def session_validate(station):
     if not code:
         return jsonify({"ok": False, "error": "missing_code"}), 400
 
-    # Rate-limit surface is small (local LAN only), but we still reject blanks/garbage fast.
-    # Full rate limiting can be added in Phase 3 if needed.
+    allowed, retry_after = _check_throttle(station.hostname)
+    if not allowed:
+        return jsonify({
+            "ok": False,
+            "error": "too_many_attempts",
+            "retry_after_seconds": retry_after,
+        }), 429
+
+    if station.status == "out_of_service":
+        return jsonify({"ok": False, "error": "station_out_of_service"}), 403
 
     now = datetime.now(timezone.utc)
 
@@ -134,20 +184,19 @@ def session_validate(station):
     ).first()
 
     if not session:
+        _record_failure(station.hostname)
         return jsonify({"ok": False, "error": "invalid_or_expired_code"})
 
-    # Check activation window hasn't elapsed
     exp = session.activation_expires_at
     if exp.tzinfo is None:
         exp = exp.replace(tzinfo=timezone.utc)
     if now > exp:
         session.status = "expired"
         db.session.commit()
+        _record_failure(station.hostname)
         return jsonify({"ok": False, "error": "invalid_or_expired_code"})
 
-    if station.status == "out_of_service":
-        return jsonify({"ok": False, "error": "station_out_of_service"}), 403
-
+    _clear_failures(station.hostname)
     return jsonify({
         "ok": True,
         "session_id": session.id,
@@ -294,8 +343,7 @@ def session_extend_by_code(station):
     """
     Consume an unused session code to extend the currently active session.
     The extension code's duration_minutes is added to the active session's
-    expiry. The extension code is immediately marked active+ended so it
-    cannot be reused.
+    expiry. The extension code is immediately consumed so it cannot be reused.
     """
     data = request.get_json(silent=True) or {}
     active_session_id = data.get("session_id")
@@ -303,6 +351,14 @@ def session_extend_by_code(station):
 
     if not active_session_id or not extension_code:
         return jsonify({"ok": False, "error": "missing_fields"}), 400
+
+    allowed, retry_after = _check_throttle(station.hostname)
+    if not allowed:
+        return jsonify({
+            "ok": False,
+            "error": "too_many_attempts",
+            "retry_after_seconds": retry_after,
+        }), 429
 
     active = db.session.get(Session, active_session_id)
     if not active or active.status != "active":
@@ -319,6 +375,7 @@ def session_extend_by_code(station):
     ).first()
 
     if not ext:
+        _record_failure(station.hostname)
         return jsonify({"ok": False, "error": "invalid_or_expired_code"})
 
     exp = ext.activation_expires_at
@@ -329,10 +386,10 @@ def session_extend_by_code(station):
         db.session.commit()
         return jsonify({"ok": False, "error": "invalid_or_expired_code"})
 
-    # Consume the extension code
-    ext.status = "active"
+    # Consume the extension code — never becomes an active session
+    ext.status = "used_for_extension"
     ext.started_at = now
-    ext.expires_at = now  # used immediately
+    ext.expires_at = now
     ext.ended_at = now
     ext.end_reason = "used_for_extension"
     ext.station_id = station.id
@@ -345,6 +402,7 @@ def session_extend_by_code(station):
     _log_event(ext.id, station.id, "code_used_for_extension",
                f"Used to extend session {active.id}.")
 
+    _clear_failures(station.hostname)
     db.session.commit()
 
     return jsonify({
