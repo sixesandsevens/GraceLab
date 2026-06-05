@@ -1,7 +1,7 @@
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, Response
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
 from wtforms import IntegerField, TextAreaField, SubmitField
@@ -208,8 +208,18 @@ def batch():
 
         org_name = Setting.get("organization_name", current_app.config["ORGANIZATION_NAME"])
         ticket_footer = Setting.get("ticket_footer", current_app.config["TICKET_FOOTER"])
-        return render_template("batch_print.html", sessions=sessions,
+
+        html = render_template("batch_print.html", sessions=sessions,
                                org_name=org_name, ticket_footer=ticket_footer)
+
+        from weasyprint import HTML
+        pdf = HTML(string=html, base_url=request.host_url).write_pdf()
+
+        return Response(
+            pdf,
+            mimetype="application/pdf",
+            headers={"Content-Disposition": "inline; filename=session-codes.pdf"},
+        )
 
     return render_template("batch_form.html", form=form)
 

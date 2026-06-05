@@ -2,9 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Batch Session Codes</title>
+  <title>Session Codes</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    @page {
+      size: letter portrait;
+      margin: 0;
+    }
 
     body {
       font-family: 'Courier New', Courier, monospace;
@@ -12,108 +17,56 @@
       background: #fff;
     }
 
-    /* ── Screen toolbar ───────────────────────────────────────────────
-       position:fixed keeps it out of the document flow entirely,
-       so it contributes zero height to the print layout.
-       A matching padding-top on .print-body gives screen users space
-       to see the buttons, but @media print removes that padding.
-    ── */
-    .screen-toolbar {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.6rem 1rem;
-      background: #f3f4f6;
-      border-bottom: 1px solid #d1d5db;
-      font-family: sans-serif;
-    }
-    .screen-toolbar span { font-size: 0.9rem; color: #374151; }
-    .screen-toolbar a, .screen-toolbar button {
-      display: inline-block;
-      padding: 0.35rem 1rem;
-      border-radius: 4px;
-      font-size: 0.875rem;
-      font-family: sans-serif;
-      cursor: pointer;
-      text-decoration: none;
-      border: none;
-    }
-    .btn-print { background: #1a56db; color: #fff; }
-    .btn-back  { background: #e5e7eb; color: #111; }
-
-    /* Space below fixed toolbar on screen only */
-    .print-body { padding-top: 2.5rem; }
-
-    /* ── Print setup ──────────────────────────────────────────────── */
-    @page {
-      size: letter portrait;
-      margin: 0;
-    }
-
-    @media print {
-      .screen-toolbar { display: none; }
-      .print-body { padding-top: 0; }
-      html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    }
-
-    /* ── Card grid ────────────────────────────────────────────────────
-       Size relative to the actual printed page area, not absolute inches.
-       100% width / 3 columns, 33.333vh height per row × 3 = 100vh.
-       This survives whatever margin the browser/printer imposes because
-       we're filling the available area, not demanding a fixed inch size.
-    ── */
-    @media print {
-      html, body { width: 100%; height: 100%; }
-    }
-
+    /*
+      Letter = 8.5 × 11 in
+      3 cols × 2.8333in = 8.5in
+      3 rows × 3.6667in = 11in
+      WeasyPrint respects @page margin:0 exactly, so these fit perfectly.
+    */
     .card-grid {
       display: grid;
-      grid-template-columns: repeat(3, 33.333%);
-      grid-template-rows: repeat(3, 33.333vh);
-      width: 100%;
-      height: 100vh;
-      overflow: hidden;
+      grid-template-columns: repeat(3, 2.8333in);
+      grid-template-rows: repeat(3, 3.6667in);
+      width: 8.5in;
+      height: 11in;
       page-break-after: always;
-      break-after: page;
     }
 
     .card {
+      width: 2.8333in;
+      height: 3.6667in;
       border: 1px dashed #999;
-      padding: 1.2vh 2%;
+      padding: 0.18in 0.16in;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       overflow: hidden;
     }
 
-    /* ── Card content ─────────────────────────────────────────────── */
     .card-org {
-      font-size: 1.1vh;
+      font-size: 9pt;
       font-weight: bold;
       text-align: center;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      line-height: 1.25;
+      line-height: 1.3;
     }
 
     .card-divider {
       border: none;
       border-top: 1px dashed #666;
-      margin: 0.5vh 0;
+      margin: 0.06in 0;
     }
 
     .card-label {
-      font-size: 0.9vh;
+      font-size: 7pt;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-bottom: 0.2vh;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.03in;
     }
 
     .card-code {
-      font-size: 3.8vh;
+      font-size: 28pt;
       font-weight: bold;
       text-align: center;
       letter-spacing: 0.1em;
@@ -121,25 +74,25 @@
     }
 
     .card-duration {
-      font-size: 1.1vh;
+      font-size: 10pt;
       text-align: center;
-      margin-top: 0.3vh;
+      margin-top: 0.05in;
     }
 
     .card-instruction {
-      font-size: 1vh;
+      font-size: 8pt;
       line-height: 1.4;
     }
 
     .card-meta {
-      font-size: 0.95vh;
+      font-size: 7.5pt;
       line-height: 1.35;
       color: #333;
-      margin-top: 0.3vh;
+      margin-top: 0.04in;
     }
 
     .card-footer {
-      font-size: 0.9vh;
+      font-size: 7.5pt;
       font-style: italic;
       text-align: center;
     }
@@ -147,14 +100,6 @@
 </head>
 <body>
 
-<div class="screen-toolbar">
-  <button class="btn-print" onclick="window.print()">Print Sheet</button>
-  <a href="{{ url_for('sessions.batch') }}" class="btn-back">New Batch</a>
-  <a href="{{ url_for('dashboard.index') }}" class="btn-back">Dashboard</a>
-  <span>{{ sessions|length }} code{{ 's' if sessions|length != 1 }} — valid until {{ sessions[0].format_expiry() if sessions }}</span>
-</div>
-
-<div class="print-body">
 {% for chunk_start in range(0, sessions|length, 9) %}
 {% set chunk = sessions[chunk_start:chunk_start+9] %}
 <div class="card-grid">
@@ -178,7 +123,6 @@
   {% endfor %}
 </div>
 {% endfor %}
-</div>
 
 </body>
 </html>
