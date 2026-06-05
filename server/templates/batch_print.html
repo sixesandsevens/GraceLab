@@ -2,18 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Batch Session Codes — {{ sessions|length }} codes</title>
+  <title>Batch Session Codes</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: 'Courier New', Courier, monospace;
-      font-size: 12px;
       color: #000;
       background: #fff;
     }
 
-    /* Screen toolbar */
+    /* ── Screen toolbar (hidden at print) ─────────────────────────── */
     .screen-toolbar {
       display: flex;
       align-items: center;
@@ -23,10 +22,7 @@
       border-bottom: 1px solid #d1d5db;
       font-family: sans-serif;
     }
-    .screen-toolbar span {
-      font-size: 0.9rem;
-      color: #374151;
-    }
+    .screen-toolbar span { font-size: 0.9rem; color: #374151; }
     .screen-toolbar a, .screen-toolbar button {
       display: inline-block;
       padding: 0.4rem 1rem;
@@ -37,47 +33,54 @@
       text-decoration: none;
       border: none;
     }
-    .btn-print   { background: #1a56db; color: #fff; }
-    .btn-back    { background: #e5e7eb; color: #111; }
+    .btn-print { background: #1a56db; color: #fff; }
+    .btn-back  { background: #e5e7eb; color: #111; }
+
+    /* ── Print page setup ─────────────────────────────────────────── */
+    @page {
+      size: letter portrait;
+      margin: 0;            /* we handle all spacing inside the grid */
+    }
 
     @media print {
       .screen-toolbar { display: none; }
+      /* suppress browser header/footer chrome */
+      html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
 
-    /* Sheet grid: 3 columns × N rows, one sheet = 9 cards */
-    .sheet {
-      width: 8.5in;
-      /* rows of 3.5in cards; let the browser paginate at 3 rows (11in - margins) */
-    }
-
+    /* ── Card grid: 3 × 3 filling a full letter sheet ────────────── */
+    /*
+       Letter = 8.5 × 11 in
+       3 columns × 2.833in  = 8.5in  (fills width exactly)
+       3 rows    × 3.667in  = 11in   (fills height exactly)
+       No gaps — dashed border on each card acts as the cut guide.
+    */
     .card-grid {
       display: grid;
-      grid-template-columns: repeat(3, 2.5in);
-      gap: 0;
-      /* Center the grid on the page with equal margins each side */
-      margin: 0 auto;
-      width: 7.5in; /* 3 × 2.5in */
-      page-break-inside: auto;
-    }
-
-    .card {
-      width: 2.5in;
-      height: 3.4in;
-      border: 1px dashed #aaa;
-      padding: 0.2in 0.18in;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
+      grid-template-columns: repeat(3, 2.833in);
+      grid-template-rows: repeat(3, 3.667in);
+      width: 8.5in;
+      height: 11in;
       page-break-inside: avoid;
     }
 
-    /* Every 9th card ends a visual sheet — force page break after it */
-    .card:nth-child(9n) {
-      page-break-after: always;
+    /* Extra sheets if more than 9 codes */
+    .card-grid + .card-grid {
+      page-break-before: always;
     }
 
+    .card {
+      border: 1px dashed #999;
+      padding: 0.22in 0.2in;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+    }
+
+    /* ── Card content ─────────────────────────────────────────────── */
     .card-org {
-      font-size: 9px;
+      font-size: 10px;
       font-weight: bold;
       text-align: center;
       text-transform: uppercase;
@@ -87,43 +90,44 @@
 
     .card-divider {
       border: none;
-      border-top: 1px dashed #555;
-      margin: 0.06in 0;
+      border-top: 1px dashed #666;
+      margin: 0.07in 0;
     }
 
     .card-label {
       font-size: 8px;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.1em;
       margin-bottom: 0.03in;
     }
 
     .card-code {
-      font-size: 26px;
+      font-size: 34px;
       font-weight: bold;
       text-align: center;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
     }
 
     .card-duration {
-      font-size: 10px;
+      font-size: 11px;
       text-align: center;
-      margin-top: 0.04in;
+      margin-top: 0.05in;
     }
 
     .card-instruction {
-      font-size: 8.5px;
-      line-height: 1.4;
+      font-size: 9px;
+      line-height: 1.45;
     }
 
-    .card-warning {
-      font-size: 8px;
-      line-height: 1.35;
-      color: #444;
+    .card-meta {
+      font-size: 8.5px;
+      line-height: 1.4;
+      color: #333;
+      margin-top: 0.05in;
     }
 
     .card-footer {
-      font-size: 8px;
+      font-size: 8.5px;
       font-style: italic;
       text-align: center;
     }
@@ -135,36 +139,32 @@
   <button class="btn-print" onclick="window.print()">Print Sheet</button>
   <a href="{{ url_for('sessions.batch') }}" class="btn-back">New Batch</a>
   <a href="{{ url_for('dashboard.index') }}" class="btn-back">Dashboard</a>
-  <span>{{ sessions|length }} code{{ 's' if sessions|length != 1 }} generated — valid 24 hours</span>
+  <span>{{ sessions|length }} code{{ 's' if sessions|length != 1 }} — valid until {{ sessions[0].format_expiry() if sessions }}</span>
 </div>
 
-<div class="sheet">
-  <div class="card-grid">
-    {% for s in sessions %}
-    <div class="card">
-      <div>
-        <div class="card-org">{{ org_name }}<br>Computer Lab</div>
-        <hr class="card-divider">
-        <div class="card-label">Session Code</div>
-        <div class="card-code">{{ s.code_display }}</div>
-        <div class="card-duration">Time Limit: {{ s.duration_minutes }} min</div>
-      </div>
-      <div>
-        <hr class="card-divider">
-        <div class="card-instruction">
-          Enter this code at any available computer to begin your session.
-        </div>
-        <div class="card-warning" style="margin-top:0.04in;">
-          One-time use only. Valid until {{ s.format_expiry() }}.
-          Files &amp; downloads deleted when session ends.
-        </div>
-        <hr class="card-divider">
-        <div class="card-footer">{{ ticket_footer }}</div>
-      </div>
+{% for chunk_start in range(0, sessions|length, 9) %}
+{% set chunk = sessions[chunk_start:chunk_start+9] %}
+<div class="card-grid">
+  {% for s in chunk %}
+  <div class="card">
+    <div>
+      <div class="card-org">{{ org_name }}<br>Computer Lab</div>
+      <hr class="card-divider">
+      <div class="card-label">Session Code</div>
+      <div class="card-code">{{ s.code_display }}</div>
+      <div class="card-duration">{{ s.duration_minutes }} minutes</div>
     </div>
-    {% endfor %}
+    <div>
+      <hr class="card-divider">
+      <div class="card-instruction">Enter this code at any available computer to start your session.</div>
+      <div class="card-meta">One-time use only. Valid until {{ s.format_expiry() }}.</div>
+      <hr class="card-divider">
+      <div class="card-footer">{{ ticket_footer }}</div>
+    </div>
   </div>
+  {% endfor %}
 </div>
+{% endfor %}
 
 </body>
 </html>
