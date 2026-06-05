@@ -74,5 +74,5 @@ def index():
         pending_codes=pending_codes,
         stations=stations,
         recent_sessions=recent_sessions,
-        now=now,
+        now=now.replace(tzinfo=None),  # SQLite returns naive datetimes; match for template comparisons
     )
