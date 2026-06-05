@@ -22,6 +22,18 @@ class NewSessionForm(FlaskForm):
     submit = SubmitField("Generate Session Code")
 
 
+class BatchSessionForm(FlaskForm):
+    quantity = IntegerField(
+        "Number of codes",
+        validators=[DataRequired(), NumberRange(min=1, max=36)],
+    )
+    duration_minutes = IntegerField(
+        "Duration (minutes)",
+        validators=[DataRequired(), NumberRange(min=5, max=480)],
+    )
+    submit = SubmitField("Generate & Print")
+
+
 def generate_code():
     """Generate a XXX-XXX digit session code."""
     digits = [secrets.choice(string.digits) for _ in range(6)]
@@ -154,6 +166,52 @@ def extend(session_id):
     db.session.commit()
     flash(f"Session extended by {minutes} minutes.", "success")
     return redirect(url_for("dashboard.index"))
+
+
+@sessions_bp.route("/batch", methods=["GET", "POST"])
+@login_required
+def batch():
+    form = BatchSessionForm()
+
+    default_minutes = int(Setting.get("default_session_minutes",
+                                      current_app.config["DEFAULT_SESSION_MINUTES"]))
+    if request.method == "GET":
+        form.quantity.data = 9
+        form.duration_minutes.data = default_minutes
+
+    if form.validate_on_submit():
+        code_expiration = int(Setting.get("code_expiration_minutes",
+                                          current_app.config["CODE_EXPIRATION_MINUTES"]))
+        now = datetime.now(timezone.utc)
+        sessions = []
+
+        for _ in range(form.quantity.data):
+            code = generate_unique_code()
+            s = Session(
+                code_display=code,
+                code_hash=generate_password_hash(code),
+                status="created",
+                duration_minutes=form.duration_minutes.data,
+                created_by_user_id=current_user.id,
+                activation_expires_at=now + timedelta(minutes=code_expiration),
+            )
+            db.session.add(s)
+            db.session.flush()
+            db.session.add(SessionEvent(
+                session_id=s.id,
+                event_type="code_created",
+                message=f"Batch code created by {current_user.username}.",
+            ))
+            sessions.append(s)
+
+        db.session.commit()
+
+        org_name = Setting.get("organization_name", current_app.config["ORGANIZATION_NAME"])
+        ticket_footer = Setting.get("ticket_footer", current_app.config["TICKET_FOOTER"])
+        return render_template("batch_print.html", sessions=sessions,
+                               org_name=org_name, ticket_footer=ticket_footer)
+
+    return render_template("batch_form.html", form=form)
 
 
 @sessions_bp.route("/<int:session_id>/end", methods=["POST"])

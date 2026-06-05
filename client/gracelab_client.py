@@ -153,6 +153,12 @@ class GraceLabAPI:
     def session_status(self, session_id):
         return self._get(f"/api/session/status/{session_id}")
 
+    def extend_by_code(self, session_id, code):
+        return self._post("/api/session/extend-by-code", {
+            "session_id": session_id,
+            "code": code,
+        })
+
 # ---------------------------------------------------------------------------
 # Colors / layout constants
 # ---------------------------------------------------------------------------
@@ -363,16 +369,55 @@ class GraceLabClient:
         inner.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
         tk.Label(inner, text="⚠  Session Ending Soon", bg=WARN_BG, fg=WARN_FG,
-                 font=self._f_heading).pack(pady=(0, 20))
+                 font=self._f_heading).pack(pady=(0, 10))
 
         self._timer_label = tk.Label(inner, text="--:--", bg=WARN_BG, fg=WARN_FG,
                                      font=self._f_timer)
-        self._timer_label.pack(pady=10)
+        self._timer_label.pack(pady=8)
 
         tk.Label(inner, text="Please save anything important to your own storage.",
-                 bg=WARN_BG, fg=WARN_FG, font=self._f_body).pack(pady=(10, 4))
-        tk.Label(inner, text="Ask staff now if you need more time.",
-                 bg=WARN_BG, fg=WARN_FG, font=self._f_body).pack()
+                 bg=WARN_BG, fg=WARN_FG, font=self._f_body).pack(pady=(6, 2))
+
+        # ── Extension code entry ──────────────────────────────────────────
+        tk.Label(inner, text="Have another code? Enter it below to extend your session.",
+                 bg=WARN_BG, fg=WARN_FG, font=self._f_small).pack(pady=(14, 4))
+
+        ext_frame = tk.Frame(inner, bg=WARN_BG)
+        ext_frame.pack()
+
+        self._ext_var = tk.StringVar()
+        self._ext_entry = tk.Entry(
+            ext_frame,
+            textvariable=self._ext_var,
+            font=self._f_entry,
+            width=9,
+            justify=tk.CENTER,
+            bg=ENTRY_BG, fg=ENTRY_FG,
+            insertbackground=ENTRY_FG,
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=2,
+            highlightcolor=ACCENT,
+            highlightbackground="#374151",
+        )
+        self._ext_entry.pack(side=tk.LEFT, ipady=8, ipadx=8)
+        self._ext_entry.focus_set()
+
+        # Reuse the same XXX-XXX formatter
+        self._ext_trace_id = self._ext_var.trace_add("write", self._format_ext_entry)
+        self._ext_entry.bind("<Return>", lambda e: self._submit_extension())
+
+        tk.Button(
+            ext_frame, text="Extend",
+            font=self._f_btn, bg=BTN_BG, fg=BTN_FG,
+            activebackground=ACCENT_DARK, activeforeground=BTN_FG,
+            relief=tk.FLAT, cursor="hand2", padx=16, pady=8,
+            command=self._submit_extension,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        self._ext_msg = tk.Label(inner, text="", bg=WARN_BG, fg=ERROR_FG, font=self._f_small)
+        self._ext_msg.pack(pady=(6, 0))
+        # ─────────────────────────────────────────────────────────────────
 
         self._tick()
 
@@ -520,6 +565,64 @@ class GraceLabClient:
     def _idle_with_error(self, msg):
         self._show_idle()
         self._msg_label.config(text=msg)
+
+    def _format_ext_entry(self, *_):
+        raw = self._ext_var.get().replace("-", "")
+        raw = "".join(c for c in raw if c.isdigit())[:6]
+        formatted = raw[:3] + "-" + raw[3:] if len(raw) > 3 else raw
+        self._ext_var.trace_remove("write", self._ext_trace_id)
+        self._ext_var.set(formatted)
+        self._ext_entry.icursor(tk.END)
+        self._ext_trace_id = self._ext_var.trace_add("write", self._format_ext_entry)
+
+    def _submit_extension(self):
+        if self._state != self.SESSION_WARNING:
+            return
+        code = self._ext_var.get().strip()
+        if not code:
+            return
+        self._ext_entry.config(state=tk.DISABLED)
+        self._ext_msg.config(text="Checking code…", fg=WARN_FG)
+        threading.Thread(
+            target=self._do_extend_by_code, args=(code,), daemon=True
+        ).start()
+
+    def _do_extend_by_code(self, code):
+        try:
+            result = self.api.extend_by_code(self._session_id, code)
+        except APIError as e:
+            log.warning("Extend-by-code failed (server unreachable?): %s", e)
+            self.root.after(0, self._ext_reset_with_error,
+                            "Server unreachable. Try again.")
+            return
+
+        if not result.get("ok"):
+            self.root.after(0, self._ext_reset_with_error,
+                            "Invalid or already-used code.")
+            return
+
+        expires_str = result.get("expires_at", "")
+        added = result.get("added_minutes", 0)
+        new_expires = self._parse_expires(expires_str)
+        log.info("Session extended by %d min via code. New expiry: %s", added, expires_str)
+
+        def _apply():
+            self._expires_at = new_expires
+            self._warning_fired = False
+            self._show_session_active()
+
+        self.root.after(0, _apply)
+
+    def _ext_reset_with_error(self, msg):
+        if self._state != self.SESSION_WARNING:
+            return
+        try:
+            self._ext_entry.config(state=tk.NORMAL)
+            self._ext_var.set("")
+            self._ext_msg.config(text=msg, fg=ERROR_FG)
+            self._ext_entry.focus_set()
+        except tk.TclError:
+            pass
 
     @staticmethod
     def _parse_expires(s):

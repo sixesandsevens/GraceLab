@@ -12,7 +12,7 @@ class Config:
 
     # Session code settings
     DEFAULT_SESSION_MINUTES = 60
-    CODE_EXPIRATION_MINUTES = 30
+    CODE_EXPIRATION_MINUTES = 1440  # 24 hours
     SESSION_WARNING_MINUTES = 5
 
     # Station monitoring

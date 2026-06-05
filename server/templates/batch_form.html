@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Batch Print Codes{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Batch Print Session Codes</h2>
+</div>
+
+<div class="form-card">
+  <p style="margin-bottom:1rem;color:#6b7280;font-size:0.95rem;">
+    Generates multiple codes at once and opens a print-ready sheet (9 cards per page).
+    Codes are valid for 24 hours from the time of printing.
+  </p>
+  <form method="post" action="{{ url_for('sessions.batch') }}">
+    {{ form.hidden_tag() }}
+
+    <div class="form-group">
+      {{ form.quantity.label }}
+      {{ form.quantity(class="form-control", style="width:8rem") }}
+      {% if form.quantity.errors %}
+        <div class="field-errors">{{ form.quantity.errors[0] }}</div>
+      {% endif %}
+      <div class="form-hint">1–36 codes (9 fit on one sheet).</div>
+    </div>
+
+    <div class="form-group">
+      {{ form.duration_minutes.label }}
+      {{ form.duration_minutes(class="form-control", style="width:8rem") }}
+      {% if form.duration_minutes.errors %}
+        <div class="field-errors">{{ form.duration_minutes.errors[0] }}</div>
+      {% endif %}
+    </div>
+
+    <div class="preset-buttons">
+      <span class="form-hint">Quick set:</span>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="setDuration(30)">30 min</button>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="setDuration(60)">60 min</button>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="setDuration(90)">90 min</button>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="setDuration(120)">2 hr</button>
+    </div>
+
+    <div class="form-group" style="margin-top:1.5rem;">
+      {{ form.submit(class="btn btn-primary") }}
+      <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+function setDuration(minutes) {
+  document.getElementById('duration_minutes').value = minutes;
+}
+</script>
+{% endblock %}

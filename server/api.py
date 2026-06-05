@@ -288,6 +288,72 @@ def session_status(station, session_id):
     })
 
 
+@api_bp.route("/session/extend-by-code", methods=["POST"])
+@station_required
+def session_extend_by_code(station):
+    """
+    Consume an unused session code to extend the currently active session.
+    The extension code's duration_minutes is added to the active session's
+    expiry. The extension code is immediately marked active+ended so it
+    cannot be reused.
+    """
+    data = request.get_json(silent=True) or {}
+    active_session_id = data.get("session_id")
+    extension_code = (data.get("code") or "").strip()
+
+    if not active_session_id or not extension_code:
+        return jsonify({"ok": False, "error": "missing_fields"}), 400
+
+    active = db.session.get(Session, active_session_id)
+    if not active or active.status != "active":
+        return jsonify({"ok": False, "error": "session_not_active"}), 409
+
+    if active.station_id != station.id:
+        return jsonify({"ok": False, "error": "session_not_assigned_to_station"}), 403
+
+    now = datetime.now(timezone.utc)
+
+    ext = Session.query.filter_by(
+        code_display=extension_code,
+        status="created",
+    ).first()
+
+    if not ext:
+        return jsonify({"ok": False, "error": "invalid_or_expired_code"})
+
+    exp = ext.activation_expires_at
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if now > exp:
+        ext.status = "expired"
+        db.session.commit()
+        return jsonify({"ok": False, "error": "invalid_or_expired_code"})
+
+    # Consume the extension code
+    ext.status = "active"
+    ext.started_at = now
+    ext.expires_at = now  # used immediately
+    ext.ended_at = now
+    ext.end_reason = "used_for_extension"
+    ext.station_id = station.id
+
+    # Extend the running session
+    active.expires_at = active.expires_at + timedelta(minutes=ext.duration_minutes)
+
+    _log_event(active.id, station.id, "session_extended",
+               f"Extended by {ext.duration_minutes} min via code {ext.code_display}.")
+    _log_event(ext.id, station.id, "code_used_for_extension",
+               f"Used to extend session {active.id}.")
+
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "expires_at": active.expires_at.strftime("%Y-%m-%dT%H:%M:%S"),
+        "added_minutes": ext.duration_minutes,
+    })
+
+
 @api_bp.route("/session/event", methods=["POST"])
 @station_required
 def session_event(station):
