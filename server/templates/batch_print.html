@@ -51,17 +51,17 @@
     /* ── Card grid: 3 × 3 filling a full letter sheet ────────────── */
     /*
        Letter = 8.5 × 11 in
-       3 columns × 2.833in  = 8.5in  (fills width exactly)
-       3 rows    × 3.667in  = 11in   (fills height exactly)
-       No gaps — dashed border on each card acts as the cut guide.
+       3 columns × 2.833in = 8.5in (exact)
+       Each card row is 3.667in — 3 rows × 3.667 = 11in
+       height is intentionally NOT fixed on the grid so the browser
+       doesn't clip rows when screen zoom or print margins interfere.
+       break-inside: avoid is on cards only, not the whole grid.
     */
     .card-grid {
       display: grid;
       grid-template-columns: repeat(3, 2.833in);
-      grid-template-rows: repeat(3, 3.667in);
+      grid-auto-rows: 3.667in;
       width: 8.5in;
-      height: 11in;
-      page-break-inside: avoid;
     }
 
     /* Extra sheets if more than 9 codes */
@@ -76,6 +76,8 @@
       flex-direction: column;
       justify-content: space-between;
       overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     /* ── Card content ─────────────────────────────────────────────── */
