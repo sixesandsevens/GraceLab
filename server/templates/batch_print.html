@@ -26,9 +26,8 @@
     .card-grid {
       display: grid;
       grid-template-columns: repeat(3, 2.8333in);
-      grid-template-rows: repeat(3, 3.6667in);
+      grid-template-rows: repeat(3, 3.660in);
       width: 8.5in;
-      height: 11in;
     }
 
     .card-grid + .card-grid {
@@ -44,11 +43,6 @@
       flex-direction: column;
       justify-content: space-between;
       overflow: hidden;
-    }
-
-    .card-empty {
-      width: 2.8333in;
-      height: 3.6667in;
     }
 
     .card-org {
@@ -128,9 +122,6 @@
       <div class="card-footer">{{ ticket_footer }}</div>
     </div>
   </div>
-  {% endfor %}
-  {% for _ in range(9 - chunk|length) %}
-  <div class="card-empty"></div>
   {% endfor %}
 </div>
 {% endfor %}
