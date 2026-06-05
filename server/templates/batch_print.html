@@ -12,12 +12,20 @@
       background: #fff;
     }
 
-    /* ── Screen toolbar (hidden at print) ─────────────────────────── */
+    /* ── Screen toolbar ───────────────────────────────────────────────
+       position:fixed keeps it out of the document flow entirely,
+       so it contributes zero height to the print layout.
+       A matching padding-top on .print-body gives screen users space
+       to see the buttons, but @media print removes that padding.
+    ── */
     .screen-toolbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      padding: 0.75rem 1rem;
+      padding: 0.6rem 1rem;
       background: #f3f4f6;
       border-bottom: 1px solid #d1d5db;
       font-family: sans-serif;
@@ -25,7 +33,7 @@
     .screen-toolbar span { font-size: 0.9rem; color: #374151; }
     .screen-toolbar a, .screen-toolbar button {
       display: inline-block;
-      padding: 0.4rem 1rem;
+      padding: 0.35rem 1rem;
       border-radius: 4px;
       font-size: 0.875rem;
       font-family: sans-serif;
@@ -36,100 +44,103 @@
     .btn-print { background: #1a56db; color: #fff; }
     .btn-back  { background: #e5e7eb; color: #111; }
 
-    /* ── Print page setup ─────────────────────────────────────────── */
+    /* Space below fixed toolbar on screen only */
+    .print-body { padding-top: 2.5rem; }
+
+    /* ── Print setup ──────────────────────────────────────────────── */
     @page {
       size: letter portrait;
-      margin: 0;            /* we handle all spacing inside the grid */
+      margin: 0;
     }
 
     @media print {
       .screen-toolbar { display: none; }
-      /* suppress browser header/footer chrome */
+      .print-body { padding-top: 0; }
       html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
 
-    /* ── Card grid: 3 × 3 filling a full letter sheet ────────────── */
-    /*
-       Letter = 8.5 × 11 in
-       3 columns × 2.833in = 8.5in (exact)
-       Each card row is 3.667in — 3 rows × 3.667 = 11in
-       height is intentionally NOT fixed on the grid so the browser
-       doesn't clip rows when screen zoom or print margins interfere.
-       break-inside: avoid is on cards only, not the whole grid.
-    */
+    /* ── Card grid ────────────────────────────────────────────────────
+       8.5in wide  = 3 × 2.8333in
+       11in tall   = 3 × 3.6667in
+       Both dimensions explicit so the browser has no ambiguity.
+       overflow:hidden on cards ensures nothing bleeds into the next row.
+    ── */
     .card-grid {
       display: grid;
-      grid-template-columns: repeat(3, 2.833in);
-      grid-auto-rows: 3.667in;
+      grid-template-columns: repeat(3, 2.8333in);
+      grid-template-rows: repeat(3, 3.6667in);
       width: 8.5in;
+      height: 11in;
+      overflow: hidden;
     }
 
-    /* Extra sheets if more than 9 codes */
     .card-grid + .card-grid {
       page-break-before: always;
+      break-before: page;
     }
 
     .card {
+      width: 2.8333in;
+      height: 3.6667in;
       border: 1px dashed #999;
-      padding: 0.22in 0.2in;
+      padding: 0.15in 0.15in;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       overflow: hidden;
-      break-inside: avoid;
-      page-break-inside: avoid;
     }
 
     /* ── Card content ─────────────────────────────────────────────── */
     .card-org {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: bold;
       text-align: center;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      line-height: 1.3;
+      letter-spacing: 0.04em;
+      line-height: 1.25;
     }
 
     .card-divider {
       border: none;
       border-top: 1px dashed #666;
-      margin: 0.07in 0;
+      margin: 0.05in 0;
     }
 
     .card-label {
-      font-size: 8px;
+      font-size: 7.5px;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      margin-bottom: 0.03in;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.02in;
     }
 
     .card-code {
-      font-size: 34px;
+      font-size: 30px;
       font-weight: bold;
       text-align: center;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.1em;
+      line-height: 1;
     }
 
     .card-duration {
-      font-size: 11px;
+      font-size: 10px;
       text-align: center;
-      margin-top: 0.05in;
+      margin-top: 0.04in;
     }
 
     .card-instruction {
-      font-size: 9px;
-      line-height: 1.45;
+      font-size: 8.5px;
+      line-height: 1.4;
     }
 
     .card-meta {
-      font-size: 8.5px;
-      line-height: 1.4;
+      font-size: 8px;
+      line-height: 1.35;
       color: #333;
-      margin-top: 0.05in;
+      margin-top: 0.04in;
     }
 
     .card-footer {
-      font-size: 8.5px;
+      font-size: 8px;
       font-style: italic;
       text-align: center;
     }
@@ -144,6 +155,7 @@
   <span>{{ sessions|length }} code{{ 's' if sessions|length != 1 }} — valid until {{ sessions[0].format_expiry() if sessions }}</span>
 </div>
 
+<div class="print-body">
 {% for chunk_start in range(0, sessions|length, 9) %}
 {% set chunk = sessions[chunk_start:chunk_start+9] %}
 <div class="card-grid">
@@ -167,6 +179,7 @@
   {% endfor %}
 </div>
 {% endfor %}
+</div>
 
 </body>
 </html>
