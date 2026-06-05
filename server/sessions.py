@@ -7,7 +7,6 @@ from flask_wtf import FlaskForm
 from wtforms import IntegerField, TextAreaField, SubmitField
 from wtforms.validators import DataRequired, NumberRange, Optional
 from werkzeug.security import generate_password_hash
-from weasyprint import HTML as WeasyprintHTML
 from extensions import db
 from models import Session, SessionEvent, Setting
 
@@ -213,6 +212,7 @@ def batch():
         html = render_template("batch_print.html", sessions=sessions,
                                org_name=org_name, ticket_footer=ticket_footer)
 
+        from weasyprint import HTML as WeasyprintHTML
         pdf = WeasyprintHTML(string=html, base_url=request.host_url).write_pdf()
 
         return Response(
