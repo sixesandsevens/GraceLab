@@ -60,30 +60,29 @@
     }
 
     /* ── Card grid ────────────────────────────────────────────────────
-       8.5in wide  = 3 × 2.8333in
-       11in tall   = 3 × 3.6667in
-       Both dimensions explicit so the browser has no ambiguity.
-       overflow:hidden on cards ensures nothing bleeds into the next row.
+       Size relative to the actual printed page area, not absolute inches.
+       100% width / 3 columns, 33.333vh height per row × 3 = 100vh.
+       This survives whatever margin the browser/printer imposes because
+       we're filling the available area, not demanding a fixed inch size.
     ── */
-    .card-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 2.8333in);
-      grid-template-rows: repeat(3, 3.6667in);
-      width: 8.5in;
-      height: 11in;
-      overflow: hidden;
+    @media print {
+      html, body { width: 100%; height: 100%; }
     }
 
-    .card-grid + .card-grid {
-      page-break-before: always;
-      break-before: page;
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 33.333%);
+      grid-template-rows: repeat(3, 33.333vh);
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+      page-break-after: always;
+      break-after: page;
     }
 
     .card {
-      width: 2.8333in;
-      height: 3.6667in;
       border: 1px dashed #999;
-      padding: 0.15in 0.15in;
+      padding: 1.2vh 2%;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -92,7 +91,7 @@
 
     /* ── Card content ─────────────────────────────────────────────── */
     .card-org {
-      font-size: 9px;
+      font-size: 1.1vh;
       font-weight: bold;
       text-align: center;
       text-transform: uppercase;
@@ -103,18 +102,18 @@
     .card-divider {
       border: none;
       border-top: 1px dashed #666;
-      margin: 0.05in 0;
+      margin: 0.5vh 0;
     }
 
     .card-label {
-      font-size: 7.5px;
+      font-size: 0.9vh;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      margin-bottom: 0.02in;
+      margin-bottom: 0.2vh;
     }
 
     .card-code {
-      font-size: 30px;
+      font-size: 3.8vh;
       font-weight: bold;
       text-align: center;
       letter-spacing: 0.1em;
@@ -122,25 +121,25 @@
     }
 
     .card-duration {
-      font-size: 10px;
+      font-size: 1.1vh;
       text-align: center;
-      margin-top: 0.04in;
+      margin-top: 0.3vh;
     }
 
     .card-instruction {
-      font-size: 8.5px;
+      font-size: 1vh;
       line-height: 1.4;
     }
 
     .card-meta {
-      font-size: 8px;
+      font-size: 0.95vh;
       line-height: 1.35;
       color: #333;
-      margin-top: 0.04in;
+      margin-top: 0.3vh;
     }
 
     .card-footer {
-      font-size: 8px;
+      font-size: 0.9vh;
       font-style: italic;
       text-align: center;
     }
