@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Disable Screen Lock
+Exec=bash -c 'pkill -f light-locker; pkill -f xscreensaver; true'
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
