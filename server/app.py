@@ -30,6 +30,7 @@ def create_app(config_name=None):
     from stations import stations_bp
     from api import api_bp
     from admin import admin_bp
+    from updates import updates_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -37,6 +38,9 @@ def create_app(config_name=None):
     app.register_blueprint(stations_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(updates_bp)
+
+    os.makedirs(app.config["UPDATES_DIR"], exist_ok=True)
 
     return app
 

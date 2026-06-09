@@ -24,6 +24,9 @@ class Config:
     ORGANIZATION_NAME = "Grace Marketplace"
     TICKET_FOOTER = "Ask staff if you need more time."
 
+    # Client update packages directory (on the server)
+    UPDATES_DIR = "/var/lib/gracelab/updates"
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

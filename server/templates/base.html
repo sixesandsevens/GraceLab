@@ -19,6 +19,7 @@
     <li><a href="{{ url_for('stations.list_stations') }}" {% if request.endpoint and request.endpoint.startswith('stations.') %}class="active"{% endif %}>Stations</a></li>
     {% if current_user.is_admin() %}
     <li><a href="{{ url_for('admin.audit') }}" {% if request.endpoint and request.endpoint.startswith('admin.audit') %}class="active"{% endif %}>Audit</a></li>
+    <li><a href="{{ url_for('updates.updates_admin') }}" {% if request.endpoint and request.endpoint.startswith('updates.') %}class="active"{% endif %}>Updates</a></li>
     <li><a href="{{ url_for('admin.settings') }}" {% if request.endpoint == 'admin.settings' %}class="active"{% endif %}>Settings</a></li>
     {% endif %}
   </ul>

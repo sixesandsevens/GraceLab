@@ -25,6 +25,8 @@ DEFAULT_SETTINGS = {
     "client_update_policy":          "idle_only",
     "client_update_channel":         "stable",
     "client_min_supported_version":  "",
+    "client_stable_version":         "",
+    "client_beta_version":           "",
     "open_lab_mode":                 "false",
     "open_session_duration_minutes": "120",
     "tos_text": (

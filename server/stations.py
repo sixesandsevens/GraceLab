@@ -7,7 +7,7 @@ from wtforms import StringField, TextAreaField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, Regexp
 from werkzeug.security import generate_password_hash
 from extensions import db
-from models import Station, SessionEvent, Setting
+from models import Station, Session, SessionEvent, AuditLog, Setting
 from audit import log_audit
 
 stations_bp = Blueprint("stations", __name__, url_prefix="/admin/stations")
@@ -142,6 +142,33 @@ def mark_out_of_service(station_id):
               station_id=station.id, details={"status": "out_of_service"})
     db.session.commit()
     flash(f"{station.display_name} marked out of service.", "info")
+    return redirect(url_for("stations.list_stations"))
+
+
+@stations_bp.route("/<int:station_id>/delete", methods=["POST"])
+@login_required
+@_admin_required
+def delete_station(station_id):
+    station = db.get_or_404(Station, station_id)
+
+    if station.current_session_id or station.status == "in_use":
+        flash(f"Cannot delete {station.display_name} — it has an active session.", "danger")
+        return redirect(url_for("stations.list_stations"))
+
+    hostname = station.hostname
+    display_name = station.display_name
+
+    # Nullify FK references so history is preserved
+    SessionEvent.query.filter_by(station_id=station_id).update({"station_id": None})
+    Session.query.filter_by(station_id=station_id).update({"station_id": None})
+    AuditLog.query.filter_by(station_id=station_id).update({"station_id": None})
+
+    log_audit("station_deleted", target_type="station", target_id=station_id,
+              details={"hostname": hostname, "display_name": display_name})
+    db.session.delete(station)
+    db.session.commit()
+
+    flash(f"Station {display_name} ({hostname}) deleted.", "success")
     return redirect(url_for("stations.list_stations"))
 
 

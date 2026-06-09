@@ -168,8 +168,9 @@ class GraceLabAPI:
 # Colors / layout constants
 # ---------------------------------------------------------------------------
 
-GUEST_TIMER_FILE   = "/tmp/gracelab-session.json"
-GUEST_LOGOUT_FLAG  = "/tmp/gracelab-guest-logout"
+GUEST_TIMER_FILE    = "/tmp/gracelab-session.json"
+GUEST_LOGOUT_FLAG   = "/tmp/gracelab-guest-logout"
+UPDATE_READY_FLAG   = "/tmp/gracelab-update-ready"
 
 BG          = "#111827"
 FG          = "#f9fafb"
@@ -1282,6 +1283,12 @@ class GraceLabClient:
             log.warning("Heartbeat failed: %s", e)
             if self._state == self.IDLE:
                 self.root.after(0, self._show_offline)
+        else:
+            # Updater signals a restart only when the station is idle
+            if self._state == self.IDLE and os.path.exists(UPDATE_READY_FLAG):
+                log.info("Update ready — exiting for restart.")
+                self.root.after(0, self.root.quit)
+                return
         finally:
             self._schedule_heartbeat()
 

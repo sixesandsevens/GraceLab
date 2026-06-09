@@ -293,6 +293,19 @@ chown -R root:root "${TEMPLATE_HOME}"
 info "template-home installed from repo → ${TEMPLATE_HOME}"
 
 # ---------------------------------------------------------------------------
+# Install updater do-install helper
+# ---------------------------------------------------------------------------
+
+step "Installing updater do-install helper"
+
+UPDATER_DIR="${INSTALL_BASE}/updater"
+mkdir -p "${UPDATER_DIR}"
+cp "${REPO_CLIENT_DIR}/updater/do-install.sh" "${UPDATER_DIR}/do-install.sh"
+chmod 755 "${UPDATER_DIR}/do-install.sh"
+chown root:root "${UPDATER_DIR}/do-install.sh"
+info "do-install.sh → ${UPDATER_DIR}/do-install.sh (root-owned)"
+
+# ---------------------------------------------------------------------------
 # Install sudoers
 # ---------------------------------------------------------------------------
 
@@ -305,10 +318,12 @@ cat > "$SUDOERS_FILE" <<EOF
 Defaults!${CURRENT_LINK}/scripts/start_guest_session.sh !requiretty
 Defaults!${CURRENT_LINK}/scripts/end_guest_session.sh   !requiretty
 Defaults!${CURRENT_LINK}/scripts/reset_guest_home.sh    !requiretty
+Defaults!${UPDATER_DIR}/do-install.sh                   !requiretty
 
 ${GRACELAB_USER} ALL=(root) NOPASSWD: ${CURRENT_LINK}/scripts/start_guest_session.sh
 ${GRACELAB_USER} ALL=(root) NOPASSWD: ${CURRENT_LINK}/scripts/end_guest_session.sh
 ${GRACELAB_USER} ALL=(root) NOPASSWD: ${CURRENT_LINK}/scripts/reset_guest_home.sh
+${GRACELAB_USER} ALL=(root) NOPASSWD: ${UPDATER_DIR}/do-install.sh
 EOF
 
 chmod 440 "$SUDOERS_FILE"
@@ -334,15 +349,27 @@ cat > "${AUTOSTART_DIR}/gracelab-client.desktop" <<EOF
 Type=Application
 Name=GraceLab Client
 Comment=GraceLab kiosk session manager
-Exec=python3 ${CURRENT_LINK}/gracelab_client.py
+Exec=${CURRENT_LINK}/scripts/run-client.sh
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=3
 Hidden=false
 NoDisplay=false
 EOF
 
+cat > "${AUTOSTART_DIR}/gracelab-updater.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=GraceLab Updater
+Comment=GraceLab client auto-updater
+Exec=python3 ${CURRENT_LINK}/updater/updater.py
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=30
+Hidden=false
+NoDisplay=false
+EOF
+
 chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "/home/${GRACELAB_USER}/.config"
-info "Autostart entry written."
+info "Autostart entries written (client wrapper + updater)."
 
 # ---------------------------------------------------------------------------
 # gracelab XFCE kiosk lockdown

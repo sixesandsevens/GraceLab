@@ -97,6 +97,14 @@ class SettingsForm(FlaskForm):
         "Minimum Supported Client Version",
         validators=[Optional(), Length(0, 32)],
     )
+    client_stable_version = StringField(
+        "Published Stable Version",
+        validators=[Optional(), Length(0, 32)],
+    )
+    client_beta_version = StringField(
+        "Published Beta Version",
+        validators=[Optional(), Length(0, 32)],
+    )
     open_lab_mode = BooleanField("Enable Open Lab Mode (no session codes required)")
     open_session_duration_minutes = IntegerField(
         "Open Session Duration (minutes)",
@@ -130,6 +138,8 @@ def settings():
         form.client_update_policy.data = Setting.get("client_update_policy", "idle_only")
         form.client_update_channel.data = Setting.get("client_update_channel", "stable")
         form.client_min_supported_version.data = Setting.get("client_min_supported_version", "")
+        form.client_stable_version.data = Setting.get("client_stable_version", "")
+        form.client_beta_version.data = Setting.get("client_beta_version", "")
         form.open_lab_mode.data = Setting.get_bool("open_lab_mode", False)
         form.open_session_duration_minutes.data = Setting.get_int("open_session_duration_minutes", 120)
         form.tos_text.data = Setting.get("tos_text", "")
@@ -154,6 +164,8 @@ def settings():
             ("client_update_policy",        form.client_update_policy.data),
             ("client_update_channel",       form.client_update_channel.data),
             ("client_min_supported_version", form.client_min_supported_version.data or ""),
+            ("client_stable_version",        form.client_stable_version.data or ""),
+            ("client_beta_version",          form.client_beta_version.data or ""),
             ("open_lab_mode",               "true" if form.open_lab_mode.data else "false"),
             ("open_session_duration_minutes", str(form.open_session_duration_minutes.data or 120)),
             ("tos_text",                    form.tos_text.data or ""),

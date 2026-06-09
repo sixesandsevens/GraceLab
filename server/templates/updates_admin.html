@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Update Packages{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Client Update Packages</h2>
+</div>
+
+<p style="color:var(--muted);font-size:.9rem;margin-bottom:1.5rem">
+  Packages are served to stations when <strong>Client Updates</strong> is enabled and a version is
+  published in <a href="{{ url_for('admin.settings') }}">Settings</a>.
+  Generate packages with <code>sudo ./tools/package-client.sh</code> or upload one below.
+</p>
+
+{% if packages %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Version</th>
+      <th>Filename</th>
+      <th>Size</th>
+      <th>Uploaded</th>
+      <th>SHA256</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for pkg in packages %}
+    <tr>
+      <td><code>{{ pkg.version }}</code></td>
+      <td><code style="font-size:.8rem">{{ pkg.filename }}</code></td>
+      <td>{{ pkg.size_mb }} MB</td>
+      <td>{{ pkg.modified }}</td>
+      <td><code style="font-size:.75rem">{{ pkg.checksum[:20] }}…</code></td>
+      <td>
+        <form method="post" action="{{ url_for('updates.delete_package', filename=pkg.filename) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-danger"
+            onclick="return confirm('Delete {{ pkg.filename }}?')">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:var(--muted)">No packages on disk yet. Upload one below or run <code>tools/package-client.sh</code> on the server.</p>
+{% endif %}
+
+<h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Upload Package</h3>
+<form method="post" action="{{ url_for('updates.upload_package_route') }}"
+      enctype="multipart/form-data" style="max-width:480px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-group">
+    <label class="form-label">Package file (.tar.gz)</label>
+    <input type="file" name="package" accept=".tar.gz" class="form-control" required>
+    <div class="form-hint">Filename must be <code>gracelab-client-&lt;version&gt;.tar.gz</code>.</div>
+  </div>
+  <button type="submit" class="btn btn-primary">Upload</button>
+</form>
+{% endblock %}

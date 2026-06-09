@@ -64,6 +64,13 @@
           <button type="submit" class="btn btn-sm btn-secondary"
             onclick="return confirm('Rotate the token for {{ st.display_name }}? The old token will stop working immediately.')">Rotate Token</button>
         </form>
+        {% if st.status not in ('in_use', 'available') %}
+        <form method="post" action="{{ url_for('stations.delete_station', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-danger"
+            onclick="return confirm('Permanently delete {{ st.display_name }}? This cannot be undone.')">Delete</button>
+        </form>
+        {% endif %}
       </td>
       {% endif %}
     </tr>

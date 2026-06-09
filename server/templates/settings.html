@@ -88,6 +88,20 @@
     {% for e in form.client_min_supported_version.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
   </div>
 
+  <div class="form-group">
+    {{ form.client_stable_version.label(class="form-label") }}
+    {{ form.client_stable_version(class="form-control", style="width:160px", placeholder="e.g. 0.2.0") }}
+    <div class="form-hint">Stations on the stable channel will update to this version. Leave blank to disable pushes. Manage packages in <a href="{{ url_for('updates.updates_admin') }}">Update Packages</a>.</div>
+    {% for e in form.client_stable_version.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group">
+    {{ form.client_beta_version.label(class="form-label") }}
+    {{ form.client_beta_version(class="form-control", style="width:160px", placeholder="e.g. 0.3.0-beta1") }}
+    <div class="form-hint">Stations on the beta channel will update to this version.</div>
+    {% for e in form.client_beta_version.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
   <h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Open Lab Mode</h3>
   <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">When enabled, guests start sessions without a code by pressing a button on the lockout screen. Useful when code distribution is not practical.</p>
 
