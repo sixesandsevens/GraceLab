@@ -200,10 +200,13 @@ def _list_packages(updates_dir):
             continue
         filepath = os.path.join(updates_dir, fname)
         stat = os.stat(filepath)
+        size = stat.st_size
+        size_str = (f"{size / (1024 * 1024):.1f} MB" if size >= 1024 * 1024
+                    else f"{size / 1024:.0f} KB")
         packages.append({
             "filename": fname,
             "version": m.group(1),
-            "size_mb": f"{stat.st_size / (1024 * 1024):.1f}",
+            "size_str": size_str,
             "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
             "checksum": _get_or_compute_checksum(filepath),
         })
