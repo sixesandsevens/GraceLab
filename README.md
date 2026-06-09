@@ -101,24 +101,15 @@ Run once (and again after any schema change — it is idempotent):
 FLASK_ENV=development python3 scripts/init_db.py
 ```
 
-This creates `server/instance/gracelab.sqlite3`, all tables, and seeds default settings.
+This creates `server/instance/gracelab.sqlite3`, all tables, and seeds default settings (60-minute sessions, 24-hour code expiry, 5-minute warning, 90-second offline threshold, batch max 36, updates disabled). If a key already exists it is left unchanged, so re-running is always safe.
 
 ### Create the first admin user
 
 ```bash
-FLASK_ENV=development python3 - <<'EOF'
-from app import create_app
-from extensions import db
-from models import User
-app = create_app("development")
-with app.app_context():
-    u = User(username="admin", role="admin")
-    u.set_password("changeme")
-    db.session.add(u)
-    db.session.commit()
-    print("Admin created.")
-EOF
+FLASK_ENV=development python3 scripts/create_admin.py
 ```
+
+The script prompts for a username and password interactively and handles both create and reset (if the user already exists it updates the password and role).
 
 ### Run (development)
 
@@ -126,18 +117,51 @@ EOF
 FLASK_ENV=development python3 app.py
 ```
 
-### Run (production — gunicorn)
+### Run (production — gunicorn + systemd)
+
+> **Single worker required.** Flask-Limiter uses in-memory storage. Running multiple workers gives each worker its own counter, so the effective limit is multiplied by the worker count. Use `-w 1` until the limiter is backed by Redis or Memcached.
 
 ```bash
 SECRET_KEY="$(openssl rand -hex 32)" \
-gunicorn -w 2 -b 0.0.0.0:5000 app:app
+gunicorn -w 1 -b 127.0.0.1:5000 app:app
 ```
 
-A systemd unit at `/etc/systemd/system/gracelab.service` manages this in production. Restart after server-side changes:
+A sample systemd unit is in `tools/gracelab.service`. Install it:
+
+```bash
+sudo cp tools/gracelab.service /etc/systemd/system/gracelab.service
+# Edit the file to set the correct User, WorkingDirectory, and SECRET_KEY
+sudo systemctl daemon-reload
+sudo systemctl enable --now gracelab
+```
+
+Restart after server-side changes:
 
 ```bash
 sudo systemctl restart gracelab
 ```
+
+### Networking
+
+GraceLab is designed to run on a **private LAN only**. Do not expose port 5000 directly to the internet — there is no HTTPS, and the station tokens would be visible in transit.
+
+For remote staff access, put nginx in front:
+
+```nginx
+server {
+    listen 80;
+    server_name gracelab.internal;
+
+    location / {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+Add TLS via Certbot or a self-signed cert if you need access outside the LAN.
 
 ---
 
@@ -315,4 +339,4 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 |---|---|
 | 0.1.0 | Initial release: session codes, kiosk client, station heartbeat |
 | 0.2.0 | Extend-by-code, orphan recovery, session persistence, `dm-tool` switching, audit log, settings page, token rotation, rate limiting, Open Lab mode, Terms of Service |
-| 0.3.0 | Grace Updater (self-hosted OTA), `run-client.sh` wrapper, `package-client.sh`, Firefox policies, approved app installer, wallpaper support |
+| 0.3.0 | Grace Updater (self-hosted OTA), `run-client.sh` restart wrapper, `do-install.sh` sudoers helper, `package-client.sh`, Firefox policies, approved app installer, wallpaper, delete station |

@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-CLIENT_VERSION="0.2.0"
+CLIENT_VERSION="0.3.0"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_CLIENT_DIR="${SCRIPT_DIR}/../client"
