@@ -214,14 +214,20 @@ def run():
         available     = result["available_version"]
         download_url  = result["download_url"]
         checksum      = result["checksum_sha256"]
+        forced        = result.get("forced", False)
 
-        log.info("Update available: %s → %s", current_version, available)
+        log.info("Update available: %s → %s%s",
+                 current_version, available, " (manual push)" if forced else "")
 
         if policy == "disabled":
             log.info("Policy is disabled — skipping.")
             continue
 
-        if policy == "idle_only" and is_session_active():
+        if policy == "manual" and not forced:
+            log.info("Policy is manual and no push was queued — skipping.")
+            continue
+
+        if policy == "idle_only" and is_session_active() and not forced:
             log.info("Session active — deferring update to next check.")
             continue
 

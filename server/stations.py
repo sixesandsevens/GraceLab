@@ -59,7 +59,12 @@ def list_stations():
     if changed:
         db.session.commit()
 
-    return render_template("stations.html", stations=stations)
+    updates_enabled = Setting.get_bool("client_updates_enabled", False)
+    stable_version = Setting.get("client_stable_version", "")
+
+    return render_template("stations.html", stations=stations,
+                           updates_enabled=updates_enabled,
+                           stable_version=stable_version)
 
 
 @stations_bp.route("/new", methods=["GET", "POST"])
@@ -142,6 +147,38 @@ def mark_out_of_service(station_id):
               station_id=station.id, details={"status": "out_of_service"})
     db.session.commit()
     flash(f"{station.display_name} marked out of service.", "info")
+    return redirect(url_for("stations.list_stations"))
+
+
+@stations_bp.route("/<int:station_id>/push-update", methods=["POST"])
+@login_required
+@_admin_required
+def push_update(station_id):
+    station = db.get_or_404(Station, station_id)
+    target = Setting.get("client_stable_version", "")
+    if not target:
+        flash("No stable version is published in Settings → Client Updates.", "danger")
+        return redirect(url_for("stations.list_stations"))
+
+    station.desired_client_version = target
+    log_audit("station_update_pushed", target_type="station", target_id=station.id,
+              station_id=station.id, details={"target_version": target})
+    db.session.commit()
+    flash(f"Update to v{target} queued for {station.display_name}. "
+          f"The station will install on its next check.", "success")
+    return redirect(url_for("stations.list_stations"))
+
+
+@stations_bp.route("/<int:station_id>/cancel-update", methods=["POST"])
+@login_required
+@_admin_required
+def cancel_update(station_id):
+    station = db.get_or_404(Station, station_id)
+    station.desired_client_version = None
+    log_audit("station_update_cancelled", target_type="station", target_id=station.id,
+              station_id=station.id)
+    db.session.commit()
+    flash(f"Pending update cancelled for {station.display_name}.", "info")
     return redirect(url_for("stations.list_stations"))
 
 

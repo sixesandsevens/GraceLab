@@ -64,6 +64,20 @@
           <button type="submit" class="btn btn-sm btn-secondary"
             onclick="return confirm('Rotate the token for {{ st.display_name }}? The old token will stop working immediately.')">Rotate Token</button>
         </form>
+        {% if updates_enabled and stable_version %}
+          {% if st.desired_client_version %}
+          <form method="post" action="{{ url_for('stations.cancel_update', station_id=st.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-secondary">Cancel Update</button>
+          </form>
+          <span class="status-badge status-offline" style="font-size:.7rem;vertical-align:middle">v{{ st.desired_client_version }} pending</span>
+          {% elif st.client_version != stable_version %}
+          <form method="post" action="{{ url_for('stations.push_update', station_id=st.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-secondary">Push Update</button>
+          </form>
+          {% endif %}
+        {% endif %}
         {% if st.status not in ('in_use', 'available') %}
         <form method="post" action="{{ url_for('stations.delete_station', station_id=st.id) }}" style="display:inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

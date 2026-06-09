@@ -125,6 +125,7 @@ def update_check():
         "available_version": target_version,
         "download_url": download_url,
         "checksum_sha256": checksum,
+        "forced": bool(station.desired_client_version),
     })
 
 
