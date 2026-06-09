@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=GraceLab Wallpaper
+Exec=bash /opt/gracelab-client/current/scripts/set-wallpaper.sh
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

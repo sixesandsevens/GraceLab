@@ -106,6 +106,17 @@ rm -f /etc/X11/xorg.conf.d/10-serverflags.conf
 info "Removed /etc/X11/xorg.conf.d/10-serverflags.conf"
 
 # ---------------------------------------------------------------------------
+# Firefox policies
+# ---------------------------------------------------------------------------
+
+step "Removing Firefox policies"
+
+rm -f /etc/firefox/policies/policies.json
+rmdir /etc/firefox/policies 2>/dev/null || true
+rmdir /etc/firefox 2>/dev/null || true
+info "Removed Firefox policies"
+
+# ---------------------------------------------------------------------------
 # Temp files
 # ---------------------------------------------------------------------------
 

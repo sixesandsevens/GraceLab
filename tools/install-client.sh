@@ -19,6 +19,9 @@
 #   - Configures LightDM autologin for gracelab
 #   - Hides guestlab from LightDM greeter via AccountsService
 #   - Disables Ctrl+Alt+Backspace (DontZap)
+#   - Suppresses Linux Mint welcome screen for gracelab and guestlab
+#   - Sets desktop background via set-wallpaper.sh autostart (detects monitor name at login)
+#   - Writes Firefox enterprise policies: homepage locked to guestdesk.info, extensions blocked
 
 set -euo pipefail
 
@@ -196,6 +199,24 @@ chmod +x "${RELEASE_DIR}/scripts/"*.sh
 info "Client files installed."
 
 # ---------------------------------------------------------------------------
+# Install assets (background image, etc.)
+# ---------------------------------------------------------------------------
+
+step "Installing assets"
+
+ASSETS_SRC="${REPO_CLIENT_DIR}/assets"
+ASSETS_DST="${INSTALL_BASE}/assets"
+mkdir -p "${ASSETS_DST}"
+
+if [[ -d "$ASSETS_SRC" ]]; then
+    rsync -a --exclude='.gitkeep' "${ASSETS_SRC}/" "${ASSETS_DST}/"
+    chown -R root:root "${ASSETS_DST}"
+    info "Assets installed → ${ASSETS_DST}"
+else
+    warn "No assets directory found at ${ASSETS_SRC} — background image will not be available."
+fi
+
+# ---------------------------------------------------------------------------
 # Create/update current symlink
 # ---------------------------------------------------------------------------
 
@@ -368,6 +389,12 @@ Hidden=false
 NoDisplay=false
 EOF
 
+# Suppress Mint welcome screen for gracelab
+cat > "${AUTOSTART_DIR}/mintwelcome.desktop" <<'EOF'
+[Desktop Entry]
+Hidden=true
+EOF
+
 chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "/home/${GRACELAB_USER}/.config"
 info "Autostart entries written (client wrapper + updater)."
 
@@ -497,6 +524,35 @@ EndSection
 EOF
 
 info "DontZap configured → ${XORG_CONF_DIR}/10-serverflags.conf"
+
+# ---------------------------------------------------------------------------
+# Firefox policies (homepage + block extension installs)
+# ---------------------------------------------------------------------------
+
+step "Configuring Firefox policies"
+
+mkdir -p /etc/firefox/policies
+
+cat > /etc/firefox/policies/policies.json <<'EOF'
+{
+  "policies": {
+    "Homepage": {
+      "URL": "https://guestdesk.info",
+      "Locked": true,
+      "StartPage": "homepage-locked"
+    },
+    "BlockAboutAddons": true,
+    "ExtensionSettings": {
+      "*": {
+        "installation_mode": "blocked",
+        "blocked_install_message": "Extensions cannot be installed on this device."
+      }
+    }
+  }
+}
+EOF
+
+info "Firefox policies configured → /etc/firefox/policies/policies.json"
 
 # ---------------------------------------------------------------------------
 # Summary
