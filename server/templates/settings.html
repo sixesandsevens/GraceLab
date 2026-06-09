@@ -88,6 +88,30 @@
     {% for e in form.client_min_supported_version.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
   </div>
 
+  <h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Open Lab Mode</h3>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">When enabled, guests start sessions without a code by pressing a button on the lockout screen. Useful when code distribution is not practical.</p>
+
+  <div class="form-group" style="display:flex;align-items:center;gap:.75rem">
+    {{ form.open_lab_mode(id="open_lab_mode") }}
+    {{ form.open_lab_mode.label(class="form-label", style="margin:0") }}
+  </div>
+
+  <div class="form-group">
+    {{ form.open_session_duration_minutes.label(class="form-label") }}
+    {{ form.open_session_duration_minutes(class="form-control", style="width:120px") }}
+    <div class="form-hint">Session auto-expires after this many minutes. Prevents idle stations from staying in-use indefinitely.</div>
+    {% for e in form.open_session_duration_minutes.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Terms of Service</h3>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">Shown to guests before every session starts (code entry and open lab mode). Leave blank to skip the ToS screen.</p>
+
+  <div class="form-group">
+    {{ form.tos_text.label(class="form-label") }}
+    {{ form.tos_text(class="form-control", rows=6) }}
+    {% for e in form.tos_text.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
   <div style="margin-top:2rem">
     {{ form.submit(class="btn btn-primary") }}
   </div>

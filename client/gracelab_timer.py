@@ -116,12 +116,23 @@ class TimerOverlay:
         self.root.after(POLL_MS, self._poll)
 
 
+def _is_open_session():
+    try:
+        with open(TIMER_FILE) as f:
+            return json.load(f).get("open_mode", False)
+    except Exception:
+        return False
+
+
 def main():
     deadline = time.time() + STARTUP_WAIT_S
     while not os.path.exists(TIMER_FILE):
         if time.time() > deadline:
             sys.exit(0)
         time.sleep(1)
+
+    if _is_open_session():
+        sys.exit(0)
 
     root = tk.Tk()
     TimerOverlay(root)

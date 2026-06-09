@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import Blueprint, request, jsonify, current_app
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from extensions import db, csrf
 from models import Station, Session, SessionEvent, Setting
 
@@ -157,6 +157,9 @@ def station_config(station):
             "organization_name",
             current_app.config["ORGANIZATION_NAME"]
         ),
+        "open_lab_mode": Setting.get_bool("open_lab_mode", False),
+        "open_session_duration_minutes": Setting.get_int("open_session_duration_minutes", 120),
+        "tos_text": Setting.get("tos_text", ""),
     })
 
 
@@ -259,6 +262,50 @@ def session_start(station):
     })
 
 
+@api_bp.route("/session/open-start", methods=["POST"])
+@station_required
+def session_open_start(station):
+    if not Setting.get_bool("open_lab_mode", False):
+        return jsonify({"ok": False, "error": "open_lab_mode_disabled"}), 403
+
+    if station.status == "out_of_service":
+        return jsonify({"ok": False, "error": "station_out_of_service"}), 403
+
+    if station.current_session_id:
+        return jsonify({"ok": False, "error": "station_already_in_session"}), 409
+
+    duration = Setting.get_int("open_session_duration_minutes", 120)
+    now = datetime.now(timezone.utc)
+
+    session = Session(
+        code_display="OPEN",
+        code_hash=generate_password_hash("OPEN"),
+        status="active",
+        duration_minutes=duration,
+        created_by_user_id=None,
+        activation_expires_at=now,
+        started_at=now,
+        expires_at=now + timedelta(minutes=duration),
+    )
+    db.session.add(session)
+    db.session.flush()
+
+    session.station_id = station.id
+    station.status = "in_use"
+    station.current_session_id = session.id
+    station.last_seen = now
+
+    _log_event(session.id, station.id, "code_started", "Open lab session started.")
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "session_id": session.id,
+        "expires_at": session.expires_at.strftime("%Y-%m-%dT%H:%M:%S"),
+        "open_mode": True,
+    })
+
+
 @api_bp.route("/session/end", methods=["POST"])
 @station_required
 def session_end(station):
@@ -338,6 +385,7 @@ def session_status(station, session_id):
         "expires_at": expires_str,
         "server_time": _server_time(),
         "station_status": station_status,
+        "open_mode": session.code_display == "OPEN",
     })
 
 

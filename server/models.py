@@ -76,7 +76,7 @@ class Session(db.Model):
     status = db.Column(db.String(32), nullable=False, default="created")
     # created | active | expired | ended_by_staff | cancelled | failed
     duration_minutes = db.Column(db.Integer, nullable=False)
-    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     activation_expires_at = db.Column(db.DateTime, nullable=False)
     started_at = db.Column(db.DateTime, nullable=True)

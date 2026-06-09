@@ -155,6 +155,9 @@ class GraceLabAPI:
     def session_status(self, session_id):
         return self._get(f"/api/session/status/{session_id}")
 
+    def open_start(self):
+        return self._post("/api/session/open-start", {})
+
     def extend_by_code(self, session_id, code):
         return self._post("/api/session/extend-by-code", {
             "session_id": session_id,
@@ -200,6 +203,7 @@ class GraceLabClient:
     RESETTING       = "RESETTING"
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
     OFFLINE         = "OFFLINE"
+    TOS_PENDING     = "TOS_PENDING"
 
     def __init__(self, root, cfg):
         self.root = root
@@ -214,6 +218,12 @@ class GraceLabClient:
         self._sync_interval = int(cfg.get("session", "sync_interval_seconds"))
         self._org_name = cfg.get("ui", "organization_name")
         self._fullscreen = cfg.getboolean("ui", "fullscreen")
+
+        self._open_lab_mode = False
+        self._tos_text = ""
+        self._open_session_duration_minutes = 120
+        self._is_open_session = False
+        self._tos_callback = None
 
         self._warning_fired = False
         self._timer_job = None           # after() handle for session countdown
@@ -275,6 +285,7 @@ class GraceLabClient:
     def _show_idle(self):
         self._set_state(self.IDLE)
         self._cancel_timer()
+        self._is_open_session = False
         self._clear()
 
         outer = tk.Frame(self._main, bg=BG)
@@ -285,10 +296,30 @@ class GraceLabClient:
         tk.Label(outer, text="Computer Lab", bg=BG, fg=FG_MUTED,
                  font=self._f_body).pack(pady=(0, 40))
 
+        if self._open_lab_mode:
+            self._build_idle_open(outer)
+        else:
+            self._build_idle_code_entry(outer)
+
+    def _build_idle_open(self, outer):
+        tk.Label(outer, text="Welcome", bg=BG, fg=FG,
+                 font=self._f_heading).pack(pady=(0, 20))
+        tk.Label(outer, text="Press Begin to start your session.",
+                 bg=BG, fg=FG_MUTED, font=self._f_body).pack(pady=(0, 30))
+        tk.Button(
+            outer, text="Begin Session",
+            font=self._f_btn, bg=BTN_BG, fg=BTN_FG,
+            activebackground=ACCENT_DARK, activeforeground=BTN_FG,
+            relief=tk.FLAT, cursor="hand2", padx=40, pady=14,
+            command=self._begin_open_session,
+        ).pack()
+        tk.Label(outer, text="Files saved on this computer are deleted when your session ends.",
+                 bg=BG, fg=FG_MUTED, font=self._f_small).pack(pady=(30, 0))
+
+    def _build_idle_code_entry(self, outer):
         tk.Label(outer, text="Enter Session Code", bg=BG, fg=FG,
                  font=self._f_heading).pack(pady=(0, 20))
 
-        # Code entry: auto-inserts the dash after 3 digits
         entry_frame = tk.Frame(outer, bg=BG)
         entry_frame.pack(pady=(0, 8))
 
@@ -310,7 +341,6 @@ class GraceLabClient:
         self._code_entry.pack(ipady=10, ipadx=10)
         self._code_entry.focus_set()
 
-        # Format entry as XXX-XXX; store handle so we can remove it cleanly
         self._code_trace_id = self._code_var.trace_add("write", self._format_code_entry)
         self._code_entry.bind("<Return>", lambda e: self._submit_code())
 
@@ -329,6 +359,128 @@ class GraceLabClient:
                  bg=BG, fg=FG_MUTED, font=self._f_small).pack(pady=(30, 4))
         tk.Label(outer, text="Files saved on this computer are deleted when your session ends.",
                  bg=BG, fg=FG_MUTED, font=self._f_small).pack()
+
+    def _show_tos(self):
+        self._set_state(self.TOS_PENDING)
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        inner = tk.Frame(outer, bg=BG)
+        inner.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(inner, text=self._org_name, bg=BG, fg=FG_MUTED,
+                 font=self._f_org).pack(pady=(0, 8))
+        tk.Label(inner, text="Terms of Service", bg=BG, fg=FG,
+                 font=self._f_heading).pack(pady=(0, 16))
+
+        text_frame = tk.Frame(inner, bg=BG, width=620, height=260)
+        text_frame.pack(pady=(0, 20))
+        text_frame.pack_propagate(False)
+
+        scrollbar = tk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        tos_box = tk.Text(
+            text_frame,
+            bg="#111827", fg=FG,
+            font=self._f_body,
+            wrap=tk.WORD,
+            relief=tk.FLAT,
+            bd=0,
+            padx=14, pady=12,
+            yscrollcommand=scrollbar.set,
+        )
+        tos_box.insert(tk.END, self._tos_text)
+        tos_box.config(state=tk.DISABLED)
+        tos_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=tos_box.yview)
+
+        tk.Label(inner,
+                 text="By clicking I Agree you accept these terms and your session will begin.",
+                 bg=BG, fg=FG_MUTED, font=self._f_small).pack(pady=(0, 16))
+
+        btn_frame = tk.Frame(inner, bg=BG)
+        btn_frame.pack()
+
+        tk.Button(
+            btn_frame, text="I Agree",
+            font=self._f_btn, bg=BTN_BG, fg=BTN_FG,
+            activebackground=ACCENT_DARK, activeforeground=BTN_FG,
+            relief=tk.FLAT, cursor="hand2", padx=30, pady=12,
+            command=self._tos_agree,
+        ).pack(side=tk.LEFT, padx=(0, 12))
+
+        tk.Button(
+            btn_frame, text="No Thanks",
+            font=self._f_btn, bg="#374151", fg=FG_MUTED,
+            activebackground="#4b5563", activeforeground=FG,
+            relief=tk.FLAT, cursor="hand2", padx=30, pady=12,
+            command=self._show_idle,
+        ).pack(side=tk.LEFT)
+
+    def _tos_agree(self):
+        if self._tos_callback:
+            cb = self._tos_callback
+            self._tos_callback = None
+            cb()
+
+    def _begin_open_session(self):
+        if self._state != self.IDLE:
+            return
+        if self._tos_text:
+            self._tos_callback = self._proceed_open_session
+            self._show_tos()
+        else:
+            self._proceed_open_session()
+
+    def _proceed_open_session(self):
+        self._show_session_starting()
+        threading.Thread(target=self._do_open_session, daemon=True).start()
+
+    def _do_open_session(self):
+        try:
+            result = self.api.open_start()
+        except APIError as e:
+            log.warning("Open start failed (server unreachable?): %s", e)
+            self.root.after(0, self._show_offline)
+            self.root.after(5000, self._reconnect_loop)
+            return
+
+        if not result.get("ok"):
+            err = result.get("error", "unknown")
+            log.warning("Open start rejected: %s", err)
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Could not start session. Please ask staff for help."
+            ))
+            return
+
+        expires_str = result.get("expires_at", "")
+        session_id = result.get("session_id")
+        self._session_id = session_id
+        self._expires_at = self._parse_expires(expires_str)
+        self._is_open_session = True
+        log.info("Open session %s started, expires %s", session_id, expires_str)
+        self._save_session_state()
+
+        start_script = self.cfg.get("paths", "start_script")
+        start_ok = self._run_script(start_script, "start", failure_event="start_script_failed")
+        if not start_ok:
+            try:
+                self.api.end(session_id, "failed")
+            except APIError:
+                pass
+            self._session_id = None
+            self._expires_at = None
+            self._is_open_session = False
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Session start script failed. Please ask staff for help."
+            ))
+            return
+
+        self.root.after(0, self._show_session_active)
+        self.root.after(self._sync_interval * 1000, self._sync_tick)
 
     def _show_validating(self):
         self._set_state(self.VALIDATING)
@@ -507,6 +659,7 @@ class GraceLabClient:
                 "session_id": self._session_id,
                 "expires_at": datetime.datetime.utcfromtimestamp(
                     self._expires_at).strftime("%Y-%m-%dT%H:%M:%S"),
+                "open_mode": self._is_open_session,
             }
             path = self._session_state_path()
             tmp = path + ".tmp"
@@ -534,6 +687,8 @@ class GraceLabClient:
             log.warning("Could not clear guest logout flag: %s", e)
 
     def _write_guest_timer_file(self):
+        if self._is_open_session:
+            return
         import datetime
         if not self._expires_at:
             return
@@ -574,6 +729,7 @@ class GraceLabClient:
             return
         session_id = saved.get("session_id")
         expires_at_str = saved.get("expires_at")
+        open_mode = saved.get("open_mode", False)
         if not session_id or not expires_at_str:
             self._clear_session_state()
             return
@@ -581,11 +737,11 @@ class GraceLabClient:
         self._show_recovering()
         threading.Thread(
             target=self._recover_orphaned_session,
-            args=(session_id, expires_at_str),
+            args=(session_id, expires_at_str, open_mode),
             daemon=True,
         ).start()
 
-    def _recover_orphaned_session(self, session_id, expires_at_str):
+    def _recover_orphaned_session(self, session_id, expires_at_str, open_mode=False):
         try:
             result = self.api.session_status(session_id)
         except APIError as e:
@@ -606,6 +762,7 @@ class GraceLabClient:
             log.info("Resuming session %s with %.0f s remaining.", session_id, remaining)
             self._session_id = session_id
             self._expires_at = expires_at
+            self._is_open_session = open_mode or result.get("open_mode", False)
             self._warning_seconds = result.get("warning_minutes", 5) * 60
             self._save_session_state()
             self._write_guest_timer_file()
@@ -653,6 +810,13 @@ class GraceLabClient:
         code = self._code_var.get().strip()
         if not code:
             return
+        if self._tos_text:
+            self._tos_callback = lambda: self._proceed_code_validate(code)
+            self._show_tos()
+        else:
+            self._proceed_code_validate(code)
+
+    def _proceed_code_validate(self, code):
         self._show_validating()
         threading.Thread(target=self._validate_and_start, args=(code,), daemon=True).start()
 
@@ -724,7 +888,8 @@ class GraceLabClient:
 
     def _idle_with_error(self, msg):
         self._show_idle()
-        self._msg_label.config(text=msg)
+        if hasattr(self, "_msg_label"):
+            self._msg_label.config(text=msg)
 
     def _format_ext_entry(self, *_):
         raw = self._ext_var.get().replace("-", "")
@@ -828,7 +993,7 @@ class GraceLabClient:
             self._on_session_expired()
             return
 
-        if remaining <= self._warning_seconds and not self._warning_fired:
+        if remaining <= self._warning_seconds and not self._warning_fired and not self._is_open_session:
             self._warning_fired = True
             self._on_warning()
 
@@ -1140,8 +1305,16 @@ class GraceLabClient:
     def _fetch_server_config(self):
         try:
             result = self.api.get_config()
-            if result.get("ok") and result.get("organization_name"):
-                self._org_name = result["organization_name"]
+            if result.get("ok"):
+                if result.get("organization_name"):
+                    self._org_name = result["organization_name"]
+                self._open_lab_mode = result.get("open_lab_mode", False)
+                self._tos_text = result.get("tos_text", "")
+                self._open_session_duration_minutes = result.get(
+                    "open_session_duration_minutes", 120
+                )
+                if self._state == self.IDLE:
+                    self.root.after(0, self._show_idle)
         except APIError:
             pass
 

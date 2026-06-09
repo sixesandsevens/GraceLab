@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
-from wtforms import StringField, IntegerField, SelectField, BooleanField, SubmitField
+from wtforms import StringField, IntegerField, SelectField, BooleanField, TextAreaField, SubmitField
 from wtforms.validators import DataRequired, Length, NumberRange, Optional
 from extensions import db
 from models import AuditLog, Setting
@@ -97,6 +97,15 @@ class SettingsForm(FlaskForm):
         "Minimum Supported Client Version",
         validators=[Optional(), Length(0, 32)],
     )
+    open_lab_mode = BooleanField("Enable Open Lab Mode (no session codes required)")
+    open_session_duration_minutes = IntegerField(
+        "Open Session Duration (minutes)",
+        validators=[Optional(), NumberRange(min=15, max=480)],
+    )
+    tos_text = TextAreaField(
+        "Terms of Service",
+        validators=[Optional(), Length(0, 2000)],
+    )
     submit = SubmitField("Save Settings")
 
 
@@ -121,6 +130,9 @@ def settings():
         form.client_update_policy.data = Setting.get("client_update_policy", "idle_only")
         form.client_update_channel.data = Setting.get("client_update_channel", "stable")
         form.client_min_supported_version.data = Setting.get("client_min_supported_version", "")
+        form.open_lab_mode.data = Setting.get_bool("open_lab_mode", False)
+        form.open_session_duration_minutes.data = Setting.get_int("open_session_duration_minutes", 120)
+        form.tos_text.data = Setting.get("tos_text", "")
 
     if form.validate_on_submit():
         warn = form.warning_minutes.data
@@ -142,6 +154,9 @@ def settings():
             ("client_update_policy",        form.client_update_policy.data),
             ("client_update_channel",       form.client_update_channel.data),
             ("client_min_supported_version", form.client_min_supported_version.data or ""),
+            ("open_lab_mode",               "true" if form.open_lab_mode.data else "false"),
+            ("open_session_duration_minutes", str(form.open_session_duration_minutes.data or 120)),
+            ("tos_text",                    form.tos_text.data or ""),
         ]
         for key, new_val in pairs:
             old_val = Setting.get(key)
