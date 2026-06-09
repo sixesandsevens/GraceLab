@@ -99,6 +99,25 @@ fi
 info "Pre-flight OK."
 
 # ---------------------------------------------------------------------------
+# Install required system packages
+# ---------------------------------------------------------------------------
+
+step "Installing required packages"
+
+apt-get update -qq
+apt-get install -y \
+    python3-tk python3-gi \
+    aisleriot gnome-mahjongg gnome-mines quadrapassel gnome-sudoku \
+    libreoffice-writer libreoffice-calc libreoffice-draw libreoffice-impress \
+    drawing gnome-calculator gnome-calendar xfce4-dict xed \
+    system-config-printer celluloid rhythmbox \
+    onboard magnus orca xfce4-settings \
+    zenity \
+    2>/dev/null || warn "Some packages may have failed to install — check apt output above."
+
+info "Packages installed."
+
+# ---------------------------------------------------------------------------
 # Create users
 # ---------------------------------------------------------------------------
 
@@ -189,6 +208,34 @@ fi
 
 ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
 info "current → ${RELEASE_DIR}"
+
+# ---------------------------------------------------------------------------
+# Install system-wide desktop files for panel launchers
+# ---------------------------------------------------------------------------
+
+step "Installing system desktop files"
+
+cat > "/usr/share/applications/gracelab-apps.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Apps
+Comment=GraceLab app launcher
+Exec=bash -c 'python3 ${CURRENT_LINK}/gracelab_apps.py 2>/tmp/gracelab-apps-err.log'
+Icon=applications-other
+Terminal=false
+EOF
+
+cat > "/usr/share/applications/gracelab-endsession.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=End Session
+Comment=End your GraceLab session
+Exec=bash -c 'zenity --question --title="End Session" --text="End your session and return to the main screen?\n\nUnsaved files will be deleted." --ok-label="End Session" --cancel-label="Stay" --icon-name=system-log-out 2>/dev/null && touch /tmp/gracelab-guest-logout'
+Icon=system-log-out
+Terminal=false
+EOF
+
+info "System desktop files installed → /usr/share/applications/"
 
 # ---------------------------------------------------------------------------
 # Write client config
