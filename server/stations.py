@@ -7,7 +7,7 @@ from wtforms import StringField, TextAreaField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, Regexp
 from werkzeug.security import generate_password_hash
 from extensions import db
-from models import Station, SessionEvent
+from models import Station, SessionEvent, Setting
 from audit import log_audit
 
 stations_bp = Blueprint("stations", __name__, url_prefix="/admin/stations")
@@ -41,7 +41,10 @@ def _admin_required(f):
 @login_required
 def list_stations():
     stations = Station.query.order_by(Station.display_name.asc()).all()
-    offline_threshold = current_app.config["STATION_OFFLINE_AFTER_SECONDS"]
+    offline_threshold = Setting.get_int(
+        "station_offline_after_seconds",
+        current_app.config["STATION_OFFLINE_AFTER_SECONDS"],
+    )
     now = datetime.now(timezone.utc)
 
     changed = False

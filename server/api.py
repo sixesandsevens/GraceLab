@@ -149,10 +149,10 @@ def station_config(station):
 
     return jsonify({
         "ok": True,
-        "warning_minutes": int(Setting.get(
+        "warning_minutes": Setting.get_int(
             "warning_minutes",
             current_app.config["SESSION_WARNING_MINUTES"]
-        )),
+        ),
         "organization_name": Setting.get(
             "organization_name",
             current_app.config["ORGANIZATION_NAME"]
@@ -205,10 +205,10 @@ def session_validate(station):
         "ok": True,
         "session_id": session.id,
         "duration_minutes": session.duration_minutes,
-        "warning_minutes": int(Setting.get(
+        "warning_minutes": Setting.get_int(
             "warning_minutes",
             current_app.config["SESSION_WARNING_MINUTES"]
-        )),
+        ),
     })
 
 

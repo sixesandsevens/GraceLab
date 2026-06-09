@@ -26,7 +26,7 @@ class NewSessionForm(FlaskForm):
 class BatchSessionForm(FlaskForm):
     quantity = IntegerField(
         "Number of codes",
-        validators=[DataRequired(), NumberRange(min=1, max=36)],
+        validators=[DataRequired(), NumberRange(min=1, max=100)],
     )
     duration_minutes = IntegerField(
         "Duration (minutes)",
@@ -69,15 +69,15 @@ def list_sessions():
 def new_session():
     form = NewSessionForm()
 
-    default_minutes = int(Setting.get("default_session_minutes",
-                                      current_app.config["DEFAULT_SESSION_MINUTES"]))
+    default_minutes = Setting.get_int("default_session_minutes",
+                                     current_app.config["DEFAULT_SESSION_MINUTES"])
     if request.method == "GET":
         form.duration_minutes.data = default_minutes
 
     if form.validate_on_submit():
         code = generate_unique_code()
-        code_expiration = int(Setting.get("code_expiration_minutes",
-                                          current_app.config["CODE_EXPIRATION_MINUTES"]))
+        code_expiration = Setting.get_int("code_expiration_minutes",
+                                         current_app.config["CODE_EXPIRATION_MINUTES"])
         now = datetime.now(timezone.utc)
 
         session = Session(
@@ -99,7 +99,7 @@ def new_session():
         ))
         log_audit("session_code_created", target_type="session", target_id=session.id,
                   session_id=session.id,
-                  details={"code": code, "duration_minutes": form.duration_minutes.data})
+                  details={"duration_minutes": form.duration_minutes.data})
         db.session.commit()
 
         flash(f"Session code {code} created.", "success")
@@ -142,7 +142,7 @@ def cancel(session_id):
         message=f"Cancelled by {current_user.username}.",
     ))
     log_audit("session_code_cancelled", target_type="session", target_id=session.id,
-              session_id=session.id, details={"code": session.code_display})
+              session_id=session.id)
     db.session.commit()
     flash(f"Session code {session.code_display} cancelled.", "info")
     return redirect(url_for("sessions.list_sessions"))
@@ -180,15 +180,20 @@ def extend(session_id):
 def batch():
     form = BatchSessionForm()
 
-    default_minutes = int(Setting.get("default_session_minutes",
-                                      current_app.config["DEFAULT_SESSION_MINUTES"]))
+    default_minutes = Setting.get_int("default_session_minutes",
+                                     current_app.config["DEFAULT_SESSION_MINUTES"])
     if request.method == "GET":
         form.quantity.data = 9
         form.duration_minutes.data = default_minutes
 
     if form.validate_on_submit():
-        code_expiration = int(Setting.get("code_expiration_minutes",
-                                          current_app.config["CODE_EXPIRATION_MINUTES"]))
+        max_count = Setting.get_int("batch_code_max_count", 36)
+        if form.quantity.data > max_count:
+            flash(f"Batch size cannot exceed {max_count} (set in Settings).", "danger")
+            return render_template("batch_form.html", form=form)
+
+        code_expiration = Setting.get_int("code_expiration_minutes",
+                                         current_app.config["CODE_EXPIRATION_MINUTES"])
         now = datetime.now(timezone.utc)
         sessions = []
 
@@ -253,8 +258,7 @@ def end(session_id):
     ))
     log_audit("session_ended_by_staff", target_type="session", target_id=session.id,
               session_id=session.id,
-              station_id=session.station_id,
-              details={"code": session.code_display})
+              station_id=session.station_id)
 
     if session.station:
         session.station.current_session_id = None
