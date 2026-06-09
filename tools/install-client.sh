@@ -80,8 +80,10 @@ step "Pre-flight"
 
 command -v python3 >/dev/null 2>&1 || die "python3 is required but not installed."
 
-python3 -c "import tkinter" 2>/dev/null || \
-    warn "python3-tk may not be installed. Run: apt-get install python3-tk"
+if ! python3 -c "import tkinter" 2>/dev/null; then
+    info "Installing python3-tk..."
+    apt-get install -y python3-tk >/dev/null
+fi
 
 if ! command -v rsync >/dev/null 2>&1; then
     info "Installing rsync..."
@@ -104,12 +106,12 @@ step "Creating system users"
 
 if ! id "$GRACELAB_USER" &>/dev/null; then
     useradd \
-        --system \
         --create-home \
         --shell /bin/bash \
         --comment "GraceLab kiosk operator" \
         "$GRACELAB_USER"
-    info "Created user: ${GRACELAB_USER}"
+    passwd -l "$GRACELAB_USER" >/dev/null 2>&1 || true
+    info "Created user: ${GRACELAB_USER} (account locked)"
 else
     info "User ${GRACELAB_USER} already exists — skipping."
 fi
@@ -152,7 +154,11 @@ mkdir -p "${RELEASE_DIR}/updater"
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$LOG_DIR"
 
-chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "$INSTALL_BASE"
+# Root owns the entire installation tree so gracelab cannot modify scripts
+# that are executed as root via sudoers (privilege escalation prevention).
+# Only the downloads scratch dir needs to be gracelab-writable.
+chown -R root:root "$INSTALL_BASE"
+chown "${GRACELAB_USER}:${GRACELAB_USER}" "${INSTALL_BASE}/downloads"
 chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "$LOG_DIR"
 
 info "Directories OK."
@@ -256,11 +262,6 @@ Defaults!${CURRENT_LINK}/scripts/reset_guest_home.sh    !requiretty
 ${GRACELAB_USER} ALL=(root) NOPASSWD: ${CURRENT_LINK}/scripts/start_guest_session.sh
 ${GRACELAB_USER} ALL=(root) NOPASSWD: ${CURRENT_LINK}/scripts/end_guest_session.sh
 ${GRACELAB_USER} ALL=(root) NOPASSWD: ${CURRENT_LINK}/scripts/reset_guest_home.sh
-${GRACELAB_USER} ALL=(root) NOPASSWD: /usr/bin/pkill
-${GRACELAB_USER} ALL=(root) NOPASSWD: /usr/sbin/rsync
-${GRACELAB_USER} ALL=(root) NOPASSWD: /usr/bin/rsync
-${GRACELAB_USER} ALL=(root) NOPASSWD: /usr/sbin/passwd
-${GRACELAB_USER} ALL=(root) NOPASSWD: /usr/bin/loginctl
 EOF
 
 chmod 440 "$SUDOERS_FILE"
@@ -295,29 +296,6 @@ EOF
 
 chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "/home/${GRACELAB_USER}/.config"
 info "Autostart entry written."
-
-SYSTEMD_USER_DIR="/home/${GRACELAB_USER}/.config/systemd/user"
-mkdir -p "$SYSTEMD_USER_DIR"
-
-cat > "${SYSTEMD_USER_DIR}/gracelab-client.service" <<EOF
-[Unit]
-Description=GraceLab Kiosk Client
-After=graphical-session.target
-
-[Service]
-WorkingDirectory=${CURRENT_LINK}
-ExecStart=python3 ${CURRENT_LINK}/gracelab_client.py
-Restart=always
-RestartSec=3
-Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/${GRACELAB_USER}/.Xauthority
-
-[Install]
-WantedBy=default.target
-EOF
-
-chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "$SYSTEMD_USER_DIR"
-info "Systemd user service written (not yet enabled — see next steps)."
 
 # ---------------------------------------------------------------------------
 # gracelab XFCE kiosk lockdown
@@ -466,8 +444,4 @@ printf 'Next steps:\n'
 printf '  1. Reboot — LightDM will autologin as "%s" and GraceLab should appear fullscreen.\n' "$GRACELAB_USER"
 printf '  2. On first boot the station will show OFFLINE until the server is reachable.\n'
 printf '  3. Verify DontZap took effect (Ctrl+Alt+Backspace should do nothing after reboot).\n'
-printf '\n'
-printf 'To enable the systemd service instead of desktop autostart:\n'
-printf '  sudo loginctl enable-linger %s\n' "$GRACELAB_USER"
-printf '  sudo -u %s systemctl --user enable gracelab-client.service\n' "$GRACELAB_USER"
 printf '\n'
