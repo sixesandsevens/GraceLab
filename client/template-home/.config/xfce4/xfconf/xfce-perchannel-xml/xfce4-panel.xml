@@ -8,9 +8,9 @@
       <property name="position" type="string" value="p=8;x=0;y=0"/>
       <property name="length" type="uint" value="100"/>
       <property name="position-locked" type="bool" value="true"/>
-      <property name="size" type="uint" value="50"/>
+      <property name="size" type="uint" value="36"/>
       <property name="nrows" type="uint" value="1"/>
-      <property name="icon-size" type="uint" value="32"/>
+      <property name="icon-size" type="uint" value="24"/>
       <property name="plugin-ids" type="array">
         <value type="int" value="13"/>
         <value type="int" value="3"/>
