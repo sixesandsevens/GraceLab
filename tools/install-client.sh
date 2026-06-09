@@ -313,6 +313,17 @@ rsync -a --delete "${REPO_TEMPLATE_DIR}/" "${TEMPLATE_HOME}/"
 chown -R root:root "${TEMPLATE_HOME}"
 info "template-home installed from repo → ${TEMPLATE_HOME}"
 
+# Apply template to guestlab's home immediately so autostart overrides
+# (e.g. magnus, mintwelcome) are in place before the very first login.
+# Subsequent session resets are handled by reset_guest_home.sh.
+GUEST_HOME="/home/${GUEST_USER}"
+rm -rf "${GUEST_HOME}"
+mkdir -p "${GUEST_HOME}"
+rsync -a "${TEMPLATE_HOME}/" "${GUEST_HOME}/"
+chown -R "${GUEST_USER}:${GUEST_USER}" "${GUEST_HOME}"
+chmod 700 "${GUEST_HOME}"
+info "Guest home initialized from template → ${GUEST_HOME}"
+
 # ---------------------------------------------------------------------------
 # Install updater do-install helper
 # ---------------------------------------------------------------------------
