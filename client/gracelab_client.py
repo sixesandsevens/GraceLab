@@ -165,6 +165,9 @@ class GraceLabAPI:
 # Colors / layout constants
 # ---------------------------------------------------------------------------
 
+GUEST_TIMER_FILE   = "/tmp/gracelab-session.json"
+GUEST_LOGOUT_FLAG  = "/tmp/gracelab-guest-logout"
+
 BG          = "#111827"
 FG          = "#f9fafb"
 FG_MUTED    = "#9ca3af"
@@ -217,10 +220,12 @@ class GraceLabClient:
         self._heartbeat_job = None
         self._sync_job = None            # after() handle for session status poll
         self._code_trace_id = None       # trace handle for code entry formatter
+        self._last_guestlab_switch = 0   # epoch of last dm-tool switch-to-user guestlab call
 
         self._build_ui()
         self._show_idle()
         self._schedule_heartbeat()
+        self._check_orphaned_session()
 
         # Fetch org name from server (non-blocking)
         threading.Thread(target=self._fetch_server_config, daemon=True).start()
@@ -234,7 +239,7 @@ class GraceLabClient:
         self.root.title("GraceLab")
 
         if self._fullscreen:
-            self.root.attributes("-fullscreen", True)
+            self.root.after(150, lambda: self.root.attributes("-fullscreen", True))
         else:
             self.root.geometry("900x600")
 
@@ -371,14 +376,14 @@ class GraceLabClient:
         inner.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
         tk.Label(inner, text="⚠  Session Ending Soon", bg=WARN_BG, fg=WARN_FG,
-                 font=self._f_heading).pack(pady=(0, 10))
+                 font=self._f_heading).pack(pady=(0, 20))
 
         self._timer_label = tk.Label(inner, text="--:--", bg=WARN_BG, fg=WARN_FG,
                                      font=self._f_timer)
-        self._timer_label.pack(pady=8)
+        self._timer_label.pack(pady=10)
 
         tk.Label(inner, text="Please save anything important to your own storage.",
-                 bg=WARN_BG, fg=WARN_FG, font=self._f_body).pack(pady=(6, 2))
+                 bg=WARN_BG, fg=WARN_FG, font=self._f_body).pack(pady=(10, 4))
 
         # ── Extension code entry ──────────────────────────────────────────
         tk.Label(inner, text="Have another code? Enter it below to extend your session.",
@@ -405,7 +410,6 @@ class GraceLabClient:
         self._ext_entry.pack(side=tk.LEFT, ipady=8, ipadx=8)
         self._ext_entry.focus_set()
 
-        # Reuse the same XXX-XXX formatter
         self._ext_trace_id = self._ext_var.trace_add("write", self._format_ext_entry)
         self._ext_entry.bind("<Return>", lambda e: self._submit_extension())
 
@@ -477,6 +481,158 @@ class GraceLabClient:
                  text="This computer cannot reach the GraceLab server.\nPlease ask staff for help.",
                  bg=BG, fg=FG_MUTED, font=self._f_body, justify=tk.CENTER).pack(pady=20)
 
+    def _show_recovering(self):
+        self._set_state(self.IDLE)
+        self._clear()
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        tk.Label(outer, text="Please wait…", bg=BG, fg=FG, font=self._f_heading).pack()
+        tk.Label(outer, text="Checking previous session status.",
+                 bg=BG, fg=FG_MUTED, font=self._f_body).pack(pady=(12, 0))
+
+    # ------------------------------------------------------------------
+    # Session state persistence (survives reboots)
+    # ------------------------------------------------------------------
+
+    def _session_state_path(self):
+        return self.cfg.get("paths", "session_state",
+                            fallback="/opt/gracelab-client/session-state.json")
+
+    def _save_session_state(self):
+        import datetime
+        if not self._session_id or not self._expires_at:
+            return
+        try:
+            state = {
+                "session_id": self._session_id,
+                "expires_at": datetime.datetime.utcfromtimestamp(
+                    self._expires_at).strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+            path = self._session_state_path()
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(state, f)
+            os.replace(tmp, path)
+        except Exception as e:
+            log.warning("Could not save session state: %s", e)
+
+    def _clear_session_state(self):
+        try:
+            path = self._session_state_path()
+            if os.path.exists(path):
+                os.unlink(path)
+        except Exception as e:
+            log.warning("Could not clear session state: %s", e)
+        self._clear_guest_timer_file()
+        self._clear_guest_logout_flag()
+
+    def _clear_guest_logout_flag(self):
+        try:
+            if os.path.exists(GUEST_LOGOUT_FLAG):
+                os.unlink(GUEST_LOGOUT_FLAG)
+        except Exception as e:
+            log.warning("Could not clear guest logout flag: %s", e)
+
+    def _write_guest_timer_file(self):
+        import datetime
+        if not self._expires_at:
+            return
+        try:
+            data = {
+                "expires_at": datetime.datetime.utcfromtimestamp(
+                    self._expires_at).strftime("%Y-%m-%dT%H:%M:%S"),
+                "warning_seconds": self._warning_seconds,
+            }
+            tmp = GUEST_TIMER_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(data, f)
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, GUEST_TIMER_FILE)
+        except Exception as e:
+            log.warning("Could not write guest timer file: %s", e)
+
+    def _clear_guest_timer_file(self):
+        try:
+            if os.path.exists(GUEST_TIMER_FILE):
+                os.unlink(GUEST_TIMER_FILE)
+        except Exception as e:
+            log.warning("Could not clear guest timer file: %s", e)
+
+    # ------------------------------------------------------------------
+    # Startup orphan recovery
+    # ------------------------------------------------------------------
+
+    def _check_orphaned_session(self):
+        path = self._session_state_path()
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path) as f:
+                saved = json.load(f)
+        except Exception:
+            self._clear_session_state()
+            return
+        session_id = saved.get("session_id")
+        expires_at_str = saved.get("expires_at")
+        if not session_id or not expires_at_str:
+            self._clear_session_state()
+            return
+        log.info("Found orphaned session %s from previous run — checking with server.", session_id)
+        self._show_recovering()
+        threading.Thread(
+            target=self._recover_orphaned_session,
+            args=(session_id, expires_at_str),
+            daemon=True,
+        ).start()
+
+    def _recover_orphaned_session(self, session_id, expires_at_str):
+        try:
+            result = self.api.session_status(session_id)
+        except APIError as e:
+            log.warning("Server unreachable during orphan recovery (%s) — running cleanup.", e)
+            self._session_id = session_id
+            self._expires_at = self._parse_expires(expires_at_str)
+            self._clear_session_state()
+            self.root.after(0, lambda: self._show_ending("Clearing previous session…"))
+            self._end_and_reset("reboot")
+            return
+
+        server_status = result.get("status")
+        expires_str = result.get("expires_at", expires_at_str)
+        expires_at = self._parse_expires(expires_str)
+        remaining = expires_at - time.time()
+
+        if server_status == "active" and remaining > 0:
+            log.info("Resuming session %s with %.0f s remaining.", session_id, remaining)
+            self._session_id = session_id
+            self._expires_at = expires_at
+            self._warning_seconds = result.get("warning_minutes", 5) * 60
+            self._save_session_state()
+            self._write_guest_timer_file()
+            start_script = self.cfg.get("paths", "start_script")
+            start_ok = self._run_script(start_script, "start",
+                                        failure_event="start_script_failed")
+            if start_ok:
+                self.root.after(0, self._show_session_active)
+                self.root.after(self._sync_interval * 1000, self._sync_tick)
+            else:
+                self._clear_session_state()
+                try:
+                    self.api.end(session_id, "failed")
+                except APIError:
+                    pass
+                self.root.after(0, lambda: self._show_needs_attention(
+                    "Session resume failed. Please ask staff for help."
+                ))
+        else:
+            log.info("Orphaned session %s status=%s remaining=%.0f s — cleaning up.",
+                     session_id, server_status, remaining)
+            self._session_id = session_id
+            self._expires_at = expires_at
+            self._clear_session_state()
+            self.root.after(0, lambda: self._show_ending("Clearing previous session…"))
+            self._end_and_reset(server_status or "reboot")
+
     # ------------------------------------------------------------------
     # Code entry
     # ------------------------------------------------------------------
@@ -488,8 +644,8 @@ class GraceLabClient:
         # Remove before set to prevent re-entry, restore after
         self._code_var.trace_remove("write", self._code_trace_id)
         self._code_var.set(formatted)
-        self._code_entry.icursor(tk.END)
         self._code_trace_id = self._code_var.trace_add("write", self._format_code_entry)
+        self.root.after(0, lambda: self._code_entry.icursor(tk.END))
 
     def _submit_code(self):
         if self._state != self.IDLE:
@@ -543,6 +699,8 @@ class GraceLabClient:
         self._session_id = session_id
         self._expires_at = self._parse_expires(expires_str)
         log.info("Session %s started, expires %s", session_id, expires_str)
+        self._save_session_state()
+        self._write_guest_timer_file()
 
         start_script = self.cfg.get("paths", "start_script")
         start_ok = self._run_script(start_script, "start",
@@ -611,6 +769,8 @@ class GraceLabClient:
         def _apply():
             self._expires_at = new_expires
             self._warning_fired = False
+            self._save_session_state()
+            self._write_guest_timer_file()
             self._show_session_active()
 
         self.root.after(0, _apply)
@@ -643,7 +803,24 @@ class GraceLabClient:
         if self._state not in (self.SESSION_ACTIVE, self.SESSION_WARNING):
             return
 
-        remaining = max(0, self._expires_at - time.time())
+        # Guest clicked "End Session" from their desktop.
+        if os.path.exists(GUEST_LOGOUT_FLAG):
+            try:
+                os.unlink(GUEST_LOGOUT_FLAG)
+            except OSError:
+                pass
+            self._on_guest_logout()
+            return
+
+        # Re-switch to guestlab periodically so that if light-locker or the
+        # greeter ever surfaces the gracelab session mid-session, it snaps back
+        # automatically within ~60 s without requiring staff intervention.
+        now = time.time()
+        if now - self._last_guestlab_switch >= 60:
+            self._last_guestlab_switch = now
+            threading.Thread(target=self._ensure_guestlab_active, daemon=True).start()
+
+        remaining = max(0, self._expires_at - now)
         mins, secs = divmod(int(remaining), 60)
         self._timer_label.config(text=f"{mins:02d}:{secs:02d}")
 
@@ -744,6 +921,8 @@ class GraceLabClient:
                 delta = new_expires - self._expires_at
                 log.info("Session expiry updated by %.0f seconds (server sync).", delta)
                 self._expires_at = new_expires
+                self._save_session_state()
+                self._write_guest_timer_file()
                 # If we were in warning state but extension pushed us back past the threshold,
                 # go back to active screen so the amber screen doesn't stay up.
                 remaining = new_expires - time.time()
@@ -757,6 +936,26 @@ class GraceLabClient:
         self._cancel_timer()
         self._show_ending()
         threading.Thread(target=self._end_and_reset, args=("expired",), daemon=True).start()
+
+    def _on_guest_logout(self):
+        self._cancel_timer()
+        self._show_ending("Session ended.")
+        threading.Thread(target=self._end_and_reset, args=("guest_logout",), daemon=True).start()
+
+    def _ensure_guestlab_active(self):
+        override = "/run/gracelab-admin-override"
+        try:
+            if time.time() - os.stat(override).st_mtime < 4 * 3600:
+                return
+        except OSError:
+            pass
+        try:
+            env = dict(os.environ)
+            env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
+            subprocess.run(["dm-tool", "switch-to-user", "guestlab"],
+                           env=env, timeout=3, capture_output=True)
+        except Exception:
+            pass
 
     def _run_script(self, script_path, label, timeout=120, failure_event="client_error"):
         """
@@ -820,12 +1019,25 @@ class GraceLabClient:
 
     def _end_and_reset(self, reason):
         sid = self._session_id
+        self._clear_session_state()
 
         # Run end_script before reporting to server so a failure marks
         # the station needs_attention rather than silently returning available.
         end_script = self.cfg.get("paths", "end_script")
         end_ok = self._run_script(end_script, "end",
                                   failure_event="end_script_failed")
+
+        # Switch display back to gracelab now that guestlab is dead.
+        # Called from the client process (runs as gracelab in gracelab's session)
+        # so LightDM honours it after whatever the greeter did on session death.
+        env = dict(os.environ)
+        env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
+        try:
+            subprocess.run(["dm-tool", "switch-to-user", "gracelab"],
+                           env=env, timeout=5, capture_output=True)
+            log.info("Switched display back to gracelab.")
+        except Exception as e:
+            log.warning("dm-tool switch-to-user gracelab failed: %s", e)
 
         try:
             self.api.end(sid, reason)
@@ -888,10 +1100,19 @@ class GraceLabClient:
             self.SESSION_ACTIVE, self.SESSION_WARNING, self.SESSION_STARTING
         ) else "available"
         try:
-            self.api.heartbeat(status, self._session_id)
+            resp = self.api.heartbeat(status, self._session_id)
+            station_status = resp.get("station_status") if resp else None
             if self._state == self.OFFLINE:
                 log.info("Server back online.")
                 self.root.after(0, self._show_idle)
+            elif self._state == self.NEEDS_ATTENTION and station_status == "available":
+                log.info("Station cleared by server — returning to idle.")
+                self.root.after(0, self._show_idle)
+            elif self._state == self.IDLE and station_status in ("needs_attention", "out_of_service"):
+                log.warning("Server reports station %s — showing attention screen.", station_status)
+                self.root.after(0, lambda s=station_status: self._show_needs_attention(
+                    f"This station has been marked {s.replace('_', ' ')}."
+                ))
         except APIError as e:
             log.warning("Heartbeat failed: %s", e)
             if self._state == self.IDLE:
