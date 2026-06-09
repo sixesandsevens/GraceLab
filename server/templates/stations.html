@@ -15,6 +15,7 @@
       <th>Station</th>
       <th>Hostname</th>
       <th>Status</th>
+      <th>Client</th>
       <th>Current Session</th>
       <th>Last Seen</th>
       <th>Notes</th>
@@ -27,6 +28,16 @@
       <td><strong>{{ st.display_name }}</strong></td>
       <td><code>{{ st.hostname }}</code></td>
       <td><span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span></td>
+      <td>
+        {% if st.client_version %}
+          <code>{{ st.client_version }}</code>
+          {% if st.client_update_status and st.client_update_status != 'current' %}
+            <span class="status-badge status-needs_attention" style="font-size:.7rem;margin-left:.25rem">{{ st.client_update_status.replace('_', ' ') }}</span>
+          {% endif %}
+        {% else %}
+          <span style="color:var(--muted)">—</span>
+        {% endif %}
+      </td>
       <td>
         {% if st.current_session %}
           <a href="{{ url_for('sessions.detail', session_id=st.current_session.id) }}">{{ st.current_session.code_display }}</a>
@@ -48,11 +59,16 @@
           <button type="submit" class="btn btn-sm btn-secondary">Return to Service</button>
         </form>
         {% endif %}
+        <form method="post" action="{{ url_for('stations.rotate_token', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-secondary"
+            onclick="return confirm('Rotate the token for {{ st.display_name }}? The old token will stop working immediately.')">Rotate Token</button>
+        </form>
       </td>
       {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="7" class="empty-state">No stations registered.</td></tr>
+    <tr><td colspan="8" class="empty-state">No stations registered.</td></tr>
     {% endfor %}
   </tbody>
 </table>

@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from extensions import db
 
 
+
 class User(UserMixin, db.Model):
     __tablename__ = "users"
 
@@ -45,6 +46,15 @@ class Station(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
                            onupdate=lambda: datetime.now(timezone.utc))
+
+    # Client version tracking
+    client_version = db.Column(db.String(32), nullable=True)
+    client_update_status = db.Column(db.String(32), nullable=True)
+    client_update_error = db.Column(db.Text, nullable=True)
+    last_update_check_at = db.Column(db.DateTime, nullable=True)
+    last_update_started_at = db.Column(db.DateTime, nullable=True)
+    last_update_finished_at = db.Column(db.DateTime, nullable=True)
+    desired_client_version = db.Column(db.String(32), nullable=True)
 
     current_session = db.relationship("Session", foreign_keys=[current_session_id])
     events = db.relationship("SessionEvent", back_populates="station", lazy="dynamic")
@@ -151,5 +161,36 @@ class Setting(db.Model):
             db.session.add(cls(key=key, value=str(value)))
         db.session.commit()
 
+    @classmethod
+    def get_int(cls, key, default):
+        try:
+            return int(cls.get(key, default))
+        except (TypeError, ValueError):
+            return int(default)
+
+    @classmethod
+    def get_bool(cls, key, default=False):
+        return str(cls.get(key, default)).lower() in ("1", "true", "yes", "on")
+
     def __repr__(self):
         return f"<Setting {self.key}={self.value}>"
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    actor_username = db.Column(db.String(64), nullable=True)
+    action = db.Column(db.String(64), nullable=False)
+    target_type = db.Column(db.String(64), nullable=True)
+    target_id = db.Column(db.Integer, nullable=True)
+    station_id = db.Column(db.Integer, db.ForeignKey("stations.id"), nullable=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("sessions.id"), nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.Text, nullable=True)
+    details_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    def __repr__(self):
+        return f"<AuditLog {self.action} by {self.actor_username}>"

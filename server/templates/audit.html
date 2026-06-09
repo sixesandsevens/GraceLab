@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Audit Log</h2>
+</div>
+
+<form method="get" class="filter-form" style="margin-bottom:1.5rem;display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap;">
+  <div>
+    <label class="form-label">Action</label>
+    <select name="action" class="form-control" style="width:auto">
+      <option value="">All actions</option>
+      {% for a in actions %}
+        <option value="{{ a }}" {% if filter_action == a %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="form-label">Actor</label>
+    <input type="text" name="actor" value="{{ filter_actor }}" class="form-control" placeholder="username" style="width:160px">
+  </div>
+  <button type="submit" class="btn btn-secondary">Filter</button>
+  {% if filter_action or filter_actor %}
+  <a href="{{ url_for('admin.audit') }}" class="btn btn-secondary">Clear</a>
+  {% endif %}
+</form>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Time</th>
+      <th>Actor</th>
+      <th>Action</th>
+      <th>Target</th>
+      <th>Station</th>
+      <th>IP</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for entry in entries.items %}
+    <tr>
+      <td style="white-space:nowrap">{{ entry.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+      <td>{{ entry.actor_username or '—' }}</td>
+      <td><code>{{ entry.action }}</code></td>
+      <td>
+        {% if entry.target_type and entry.target_id %}
+          {{ entry.target_type }} #{{ entry.target_id }}
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        {% if entry.station_id %}
+          #{{ entry.station_id }}
+        {% else %}—{% endif %}
+      </td>
+      <td>{{ entry.ip_address or '—' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="empty-state">No audit entries found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if entries.pages > 1 %}
+<div class="pagination" style="margin-top:1rem;display:flex;gap:.5rem;align-items:center;">
+  {% if entries.has_prev %}
+    <a href="{{ url_for('admin.audit', page=entries.prev_num, action=filter_action, actor=filter_actor) }}" class="btn btn-secondary btn-sm">← Prev</a>
+  {% endif %}
+  <span>Page {{ entries.page }} of {{ entries.pages }}</span>
+  {% if entries.has_next %}
+    <a href="{{ url_for('admin.audit', page=entries.next_num, action=filter_action, actor=filter_actor) }}" class="btn btn-secondary btn-sm">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

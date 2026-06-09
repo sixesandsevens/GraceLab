@@ -9,6 +9,7 @@ from wtforms.validators import DataRequired, NumberRange, Optional
 from werkzeug.security import generate_password_hash
 from extensions import db
 from models import Session, SessionEvent, Setting
+from audit import log_audit
 
 sessions_bp = Blueprint("sessions", __name__, url_prefix="/admin/sessions")
 
@@ -35,13 +36,11 @@ class BatchSessionForm(FlaskForm):
 
 
 def generate_code():
-    """Generate a XXX-XXX digit session code."""
     digits = [secrets.choice(string.digits) for _ in range(6)]
     return f"{''.join(digits[:3])}-{''.join(digits[3:])}"
 
 
 def generate_unique_code():
-    """Generate a code not already in use as created/active."""
     for _ in range(20):
         code = generate_code()
         existing = Session.query.filter(
@@ -93,12 +92,14 @@ def new_session():
         db.session.add(session)
         db.session.flush()
 
-        event = SessionEvent(
+        db.session.add(SessionEvent(
             session_id=session.id,
             event_type="code_created",
             message=f"Session code created by {current_user.username}.",
-        )
-        db.session.add(event)
+        ))
+        log_audit("session_code_created", target_type="session", target_id=session.id,
+                  session_id=session.id,
+                  details={"code": code, "duration_minutes": form.duration_minutes.data})
         db.session.commit()
 
         flash(f"Session code {code} created.", "success")
@@ -140,6 +141,8 @@ def cancel(session_id):
         event_type="code_cancelled",
         message=f"Cancelled by {current_user.username}.",
     ))
+    log_audit("session_code_cancelled", target_type="session", target_id=session.id,
+              session_id=session.id, details={"code": session.code_display})
     db.session.commit()
     flash(f"Session code {session.code_display} cancelled.", "info")
     return redirect(url_for("sessions.list_sessions"))
@@ -163,6 +166,10 @@ def extend(session_id):
         event_type="session_extended",
         message=f"Extended by {minutes} minutes by {current_user.username}.",
     ))
+    log_audit("session_extended_by_staff", target_type="session", target_id=session.id,
+              session_id=session.id,
+              station_id=session.station_id,
+              details={"minutes_added": minutes})
     db.session.commit()
     flash(f"Session extended by {minutes} minutes.", "success")
     return redirect(url_for("dashboard.index"))
@@ -204,6 +211,9 @@ def batch():
             ))
             sessions.append(s)
 
+        log_audit("session_codes_batch_created",
+                  details={"quantity": form.quantity.data,
+                           "duration_minutes": form.duration_minutes.data})
         db.session.commit()
 
         org_name = Setting.get("organization_name", current_app.config["ORGANIZATION_NAME"])
@@ -241,6 +251,10 @@ def end(session_id):
         event_type="session_ended_by_staff",
         message=f"Ended by {current_user.username}.",
     ))
+    log_audit("session_ended_by_staff", target_type="session", target_id=session.id,
+              session_id=session.id,
+              station_id=session.station_id,
+              details={"code": session.code_display})
 
     if session.station:
         session.station.current_session_id = None

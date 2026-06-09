@@ -6,6 +6,8 @@ from wtforms import StringField, PasswordField, BooleanField, SubmitField
 from wtforms.validators import DataRequired, Length
 from extensions import db, login_manager
 from models import User
+from audit import log_audit
+from limiter import limiter
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -23,6 +25,7 @@ def load_user(user_id):
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per minute; 30 per hour")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard.index"))
@@ -33,11 +36,16 @@ def login():
         if user and user.active and user.check_password(form.password.data):
             login_user(user, remember=form.remember_me.data)
             user.last_login_at = datetime.now(timezone.utc)
+            log_audit("login_success", target_type="user", target_id=user.id,
+                      details={"username": user.username})
             db.session.commit()
             next_page = request.args.get("next")
             if not next_page or not next_page.startswith("/"):
                 next_page = url_for("dashboard.index")
             return redirect(next_page)
+        log_audit("login_failed",
+                  details={"username": form.username.data})
+        db.session.commit()
         flash("Invalid username or password.", "danger")
 
     return render_template("login.html", form=form)
@@ -46,6 +54,9 @@ def login():
 @auth_bp.route("/logout", methods=["POST"])
 @login_required
 def logout():
+    log_audit("logout", target_type="user", target_id=current_user.id,
+              details={"username": current_user.username})
+    db.session.commit()
     logout_user()
     flash("You have been logged out.", "info")
     return redirect(url_for("auth.login"))

@@ -1,0 +1,162 @@
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
+from flask_login import login_required, current_user
+from flask_wtf import FlaskForm
+from wtforms import StringField, IntegerField, SelectField, BooleanField, SubmitField
+from wtforms.validators import DataRequired, Length, NumberRange, Optional
+from extensions import db
+from models import AuditLog, Setting
+from audit import log_audit
+
+admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+
+def _admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_admin():
+            flash("Admin access required.", "danger")
+            return redirect(url_for("dashboard.index"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ---------------------------------------------------------------------------
+# Audit log
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/audit")
+@login_required
+@_admin_required
+def audit():
+    page = request.args.get("page", 1, type=int)
+    q = AuditLog.query.order_by(AuditLog.created_at.desc())
+
+    filter_action = request.args.get("action", "").strip()
+    filter_actor = request.args.get("actor", "").strip()
+    if filter_action:
+        q = q.filter(AuditLog.action == filter_action)
+    if filter_actor:
+        q = q.filter(AuditLog.actor_username == filter_actor)
+
+    entries = q.paginate(page=page, per_page=50, error_out=False)
+    actions = [r[0] for r in db.session.query(AuditLog.action).distinct().order_by(AuditLog.action).all()]
+    return render_template("audit.html", entries=entries,
+                           filter_action=filter_action, filter_actor=filter_actor,
+                           actions=actions)
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+class SettingsForm(FlaskForm):
+    organization_name = StringField(
+        "Organization Name",
+        validators=[DataRequired(), Length(1, 128)],
+    )
+    ticket_footer = StringField(
+        "Session Ticket Footer",
+        validators=[Optional(), Length(0, 256)],
+    )
+    default_session_minutes = IntegerField(
+        "Default Session Duration (minutes)",
+        validators=[DataRequired(), NumberRange(min=5, max=480)],
+    )
+    code_expiration_minutes = IntegerField(
+        "Session Code Valid For (minutes)",
+        validators=[DataRequired(), NumberRange(min=60, max=4320)],
+    )
+    warning_minutes = IntegerField(
+        "Warn Guest Before Session Ends (minutes)",
+        validators=[DataRequired(), NumberRange(min=1, max=60)],
+    )
+    station_offline_after_seconds = IntegerField(
+        "Mark Station Offline After (seconds)",
+        validators=[DataRequired(), NumberRange(min=30, max=600)],
+    )
+    batch_code_max_count = IntegerField(
+        "Max Batch Code Count",
+        validators=[DataRequired(), NumberRange(min=1, max=100)],
+    )
+    client_updates_enabled = BooleanField("Enable Client Auto-Updates")
+    client_update_policy = SelectField(
+        "Client Update Policy",
+        choices=[
+            ("disabled", "Disabled"),
+            ("manual", "Manual (dashboard only)"),
+            ("idle_only", "Idle Only (recommended)"),
+            ("force", "Force (even during sessions)"),
+        ],
+    )
+    client_update_channel = SelectField(
+        "Client Update Channel",
+        choices=[("stable", "Stable"), ("beta", "Beta")],
+    )
+    client_min_supported_version = StringField(
+        "Minimum Supported Client Version",
+        validators=[Optional(), Length(0, 32)],
+    )
+    submit = SubmitField("Save Settings")
+
+
+@admin_bp.route("/settings", methods=["GET", "POST"])
+@login_required
+@_admin_required
+def settings():
+    cfg = current_app.config
+    form = SettingsForm()
+
+    if request.method == "GET":
+        form.organization_name.data = Setting.get("organization_name", cfg["ORGANIZATION_NAME"])
+        form.ticket_footer.data = Setting.get("ticket_footer", cfg["TICKET_FOOTER"])
+        form.default_session_minutes.data = Setting.get_int("default_session_minutes", cfg["DEFAULT_SESSION_MINUTES"])
+        form.code_expiration_minutes.data = Setting.get_int("code_expiration_minutes", cfg["CODE_EXPIRATION_MINUTES"])
+        form.warning_minutes.data = Setting.get_int("warning_minutes", cfg["SESSION_WARNING_MINUTES"])
+        form.station_offline_after_seconds.data = Setting.get_int(
+            "station_offline_after_seconds", cfg["STATION_OFFLINE_AFTER_SECONDS"]
+        )
+        form.batch_code_max_count.data = Setting.get_int("batch_code_max_count", 36)
+        form.client_updates_enabled.data = Setting.get_bool("client_updates_enabled", False)
+        form.client_update_policy.data = Setting.get("client_update_policy", "idle_only")
+        form.client_update_channel.data = Setting.get("client_update_channel", "stable")
+        form.client_min_supported_version.data = Setting.get("client_min_supported_version", "")
+
+    if form.validate_on_submit():
+        warn = form.warning_minutes.data
+        default_dur = form.default_session_minutes.data
+        if warn >= default_dur:
+            flash("Warning minutes must be less than the default session duration.", "danger")
+            return render_template("settings.html", form=form)
+
+        changed = {}
+        pairs = [
+            ("organization_name",           form.organization_name.data),
+            ("ticket_footer",               form.ticket_footer.data or ""),
+            ("default_session_minutes",     str(default_dur)),
+            ("code_expiration_minutes",     str(form.code_expiration_minutes.data)),
+            ("warning_minutes",             str(warn)),
+            ("station_offline_after_seconds", str(form.station_offline_after_seconds.data)),
+            ("batch_code_max_count",        str(form.batch_code_max_count.data)),
+            ("client_updates_enabled",      "true" if form.client_updates_enabled.data else "false"),
+            ("client_update_policy",        form.client_update_policy.data),
+            ("client_update_channel",       form.client_update_channel.data),
+            ("client_min_supported_version", form.client_min_supported_version.data or ""),
+        ]
+        for key, new_val in pairs:
+            old_val = Setting.get(key)
+            if old_val != new_val:
+                changed[key] = {"from": old_val, "to": new_val}
+            setting_row = Setting.query.filter_by(key=key).first()
+            if setting_row:
+                setting_row.value = new_val
+            else:
+                db.session.add(Setting(key=key, value=new_val))
+
+        if changed:
+            log_audit("settings_changed", details={"changed": changed})
+        db.session.commit()
+        flash("Settings saved.", "success")
+        return redirect(url_for("admin.settings"))
+
+    return render_template("settings.html", form=form)

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Settings</h2>
+</div>
+
+<form method="post" style="max-width:640px">
+  {{ form.hidden_tag() }}
+
+  <h3 style="margin-top:0;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Organization</h3>
+
+  <div class="form-group">
+    {{ form.organization_name.label(class="form-label") }}
+    {{ form.organization_name(class="form-control") }}
+    {% for e in form.organization_name.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group">
+    {{ form.ticket_footer.label(class="form-label") }}
+    {{ form.ticket_footer(class="form-control") }}
+    <div class="form-hint">Printed at the bottom of session code tickets.</div>
+    {% for e in form.ticket_footer.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Sessions</h3>
+
+  <div class="form-group">
+    {{ form.default_session_minutes.label(class="form-label") }}
+    {{ form.default_session_minutes(class="form-control", style="width:120px") }}
+    {% for e in form.default_session_minutes.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group">
+    {{ form.code_expiration_minutes.label(class="form-label") }}
+    {{ form.code_expiration_minutes(class="form-control", style="width:120px") }}
+    <div class="form-hint">1440 = 24 hours. Codes can be entered until this time elapses.</div>
+    {% for e in form.code_expiration_minutes.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group">
+    {{ form.warning_minutes.label(class="form-label") }}
+    {{ form.warning_minutes(class="form-control", style="width:120px") }}
+    <div class="form-hint">Must be less than default session duration.</div>
+    {% for e in form.warning_minutes.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group">
+    {{ form.batch_code_max_count.label(class="form-label") }}
+    {{ form.batch_code_max_count(class="form-control", style="width:120px") }}
+    {% for e in form.batch_code_max_count.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Stations</h3>
+
+  <div class="form-group">
+    {{ form.station_offline_after_seconds.label(class="form-label") }}
+    {{ form.station_offline_after_seconds(class="form-control", style="width:120px") }}
+    <div class="form-hint">Seconds without a heartbeat before a station is shown as offline.</div>
+    {% for e in form.station_offline_after_seconds.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Client Updates</h3>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">These settings take effect once the Grace Updater is deployed (v0.3).</p>
+
+  <div class="form-group" style="display:flex;align-items:center;gap:.75rem">
+    {{ form.client_updates_enabled(id="client_updates_enabled") }}
+    {{ form.client_updates_enabled.label(class="form-label", style="margin:0") }}
+  </div>
+
+  <div class="form-group">
+    {{ form.client_update_policy.label(class="form-label") }}
+    {{ form.client_update_policy(class="form-control", style="width:auto") }}
+    {% for e in form.client_update_policy.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group">
+    {{ form.client_update_channel.label(class="form-label") }}
+    {{ form.client_update_channel(class="form-control", style="width:auto") }}
+    {% for e in form.client_update_channel.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group">
+    {{ form.client_min_supported_version.label(class="form-label") }}
+    {{ form.client_min_supported_version(class="form-control", style="width:160px", placeholder="e.g. 0.2.0") }}
+    <div class="form-hint">Clients older than this are flagged on the dashboard.</div>
+    {% for e in form.client_min_supported_version.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div style="margin-top:2rem">
+    {{ form.submit(class="btn btn-primary") }}
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Token Rotated — {{ station.display_name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Token Rotated — {{ station.display_name }}</h2>
+</div>
+
+<div class="alert alert-warning" style="max-width:640px">
+  <strong>Copy this token now.</strong> It will not be shown again.
+</div>
+
+<div style="max-width:640px;background:var(--card-bg,#1f2937);border:1px solid var(--border,#374151);border-radius:6px;padding:1.25rem;margin-bottom:1.5rem">
+  <div style="font-family:monospace;font-size:1.1rem;word-break:break-all;color:#f9fafb">{{ token }}</div>
+</div>
+
+<p style="color:var(--muted)">Update <code>client_config.ini</code> on <strong>{{ station.hostname }}</strong> with this new token, then restart the GraceLab client service.</p>
+
+<a href="{{ url_for('stations.list_stations') }}" class="btn btn-secondary">Back to Stations</a>
+{% endblock %}

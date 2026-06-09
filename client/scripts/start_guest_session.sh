@@ -2,26 +2,36 @@
 # GraceLab — start guest session hook
 # Called after the server confirms a session has started.
 #
-# Phase 4A: placeholder that proves the hook fires and logs correctly.
-# Phase 4B: will launch the guestlab desktop session or switch display.
-#
-# Exit 0  = success (session proceeds normally)
-# Exit != 0 = failure (client marks station needs_attention, ends session)
+# Exit 0  = success (session proceeds)
+# Exit != 0 = failure (client marks station needs_attention and ends session)
 
 set -euo pipefail
 
-LOG="${GRACELAB_LOG:-/tmp/gracelab-client.log}"
-TIMESTAMP=$(date --iso-8601=seconds)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "${SCRIPT_DIR}/common.sh"
 
-echo "${TIMESTAMP} [start_guest_session] Hook fired." >> "$LOG"
+gl_log INFO "start_guest_session: hook fired"
+
+# Unlock the guest account so it can be used.
+passwd -u "$GUEST_USER" 2>/dev/null || true
+
+# Clear any stale lock files from a previous session.
+rm -f /tmp/.gracelab-guest-* 2>/dev/null || true
 
 # --------------------------------------------------------------------------
-# Phase 4B: replace the block below with real guest session launch.
-# Examples:
-#   su - guestlab -c "startxfce4 &"
-#   loginctl enable-linger guestlab
-#   systemctl start gracelab-guest-session.service
+# Optional: launch a guest desktop session here.
+# Uncomment and adapt ONE of the following approaches:
+#
+# A) Switch to guest user X session (if running a full desktop):
+#    su - "$GUEST_USER" -c "env DISPLAY=:0 startxfce4 &" || true
+#
+# B) Open a browser as guest user (single-app kiosk):
+#    su - "$GUEST_USER" -c "env DISPLAY=:0 firefox --kiosk about:blank &" || true
+#
+# C) Use systemd to start a guest session service:
+#    systemctl start gracelab-guest-session.service
 # --------------------------------------------------------------------------
 
-echo "${TIMESTAMP} [start_guest_session] Done (placeholder)." >> "$LOG"
+gl_log INFO "start_guest_session: done"
 exit 0

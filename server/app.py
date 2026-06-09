@@ -21,17 +21,22 @@ def create_app(config_name=None):
     login_manager.init_app(app)
     csrf.init_app(app)
 
+    from limiter import limiter
+    limiter.init_app(app)
+
     from auth import auth_bp
     from dashboard import dashboard_bp
     from sessions import sessions_bp
     from stations import stations_bp
     from api import api_bp
+    from admin import admin_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(sessions_bp)
     app.register_blueprint(stations_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(admin_bp)
 
     return app
 

@@ -13,18 +13,28 @@ heartbeat_interval_seconds = 30
 sync_interval_seconds = 12
 
 [paths]
-# Production install paths (Phase 4B)
-# reset_script = /opt/gracelab-client/scripts/reset_guest_home.sh
-# start_script = /opt/gracelab-client/scripts/start_guest_session.sh
-# end_script   = /opt/gracelab-client/scripts/end_guest_session.sh
+# Production install paths (requires sudoers entry for gracelab user)
+# start_script = sudo /opt/gracelab-client/current/scripts/start_guest_session.sh
+# end_script   = sudo /opt/gracelab-client/current/scripts/end_guest_session.sh
+# reset_script = sudo /opt/gracelab-client/current/scripts/reset_guest_home.sh
 #
 # For local dev/testing — point at the repo scripts directory:
-reset_script = scripts/reset_guest_home.sh
 start_script = scripts/start_guest_session.sh
 end_script   = scripts/end_guest_session.sh
+reset_script = scripts/reset_guest_home.sh
 
 [ui]
 # Fullscreen mode. Set to false for windowed testing.
 fullscreen = true
 # Organization name shown on the idle screen (overridden by server config if reachable)
 organization_name = Grace Marketplace
+
+[updates]
+# Whether the client will check for and install updates.
+enabled = true
+# stable or beta
+channel = stable
+# How often to check for updates (seconds). Only checked from IDLE state.
+check_interval_seconds = 300
+# disabled | manual | idle_only | force
+install_policy = idle_only

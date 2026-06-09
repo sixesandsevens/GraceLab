@@ -8,6 +8,7 @@ from wtforms.validators import DataRequired, Length, Optional, Regexp
 from werkzeug.security import generate_password_hash
 from extensions import db
 from models import Station, SessionEvent
+from audit import log_audit
 
 stations_bp = Blueprint("stations", __name__, url_prefix="/admin/stations")
 
@@ -43,7 +44,6 @@ def list_stations():
     offline_threshold = current_app.config["STATION_OFFLINE_AFTER_SECONDS"]
     now = datetime.now(timezone.utc)
 
-    # Mark stations offline if they haven't checked in
     changed = False
     for st in stations:
         if st.status in ("available", "in_use", "needs_attention") and st.last_seen:
@@ -91,6 +91,9 @@ def new_station():
             event_type="station_registered",
             message=f"Registered by {current_user.username}.",
         ))
+        log_audit("station_registered", target_type="station", target_id=station.id,
+                  station_id=station.id,
+                  details={"hostname": station.hostname, "display_name": station.display_name})
         db.session.commit()
 
         flash(f"Station {station.hostname} registered. Copy the token — it won't be shown again.", "success")
@@ -98,6 +101,24 @@ def new_station():
                                new_station=station)
 
     return render_template("station_new.html", form=form, token=None)
+
+
+@stations_bp.route("/<int:station_id>/rotate-token", methods=["POST"])
+@login_required
+@_admin_required
+def rotate_token(station_id):
+    station = db.get_or_404(Station, station_id)
+    token = secrets.token_urlsafe(32)
+    station.station_token_hash = generate_password_hash(token)
+    db.session.add(SessionEvent(
+        station_id=station.id,
+        event_type="station_token_rotated",
+        message=f"Token rotated by {current_user.username}.",
+    ))
+    log_audit("station_token_rotated", target_type="station", target_id=station.id,
+              station_id=station.id)
+    db.session.commit()
+    return render_template("station_token_rotated.html", station=station, token=token)
 
 
 @stations_bp.route("/<int:station_id>/out-of-service", methods=["POST"])
@@ -114,6 +135,8 @@ def mark_out_of_service(station_id):
         event_type="station_marked_out_of_service",
         message=f"Marked out of service by {current_user.username}.",
     ))
+    log_audit("station_status_changed", target_type="station", target_id=station.id,
+              station_id=station.id, details={"status": "out_of_service"})
     db.session.commit()
     flash(f"{station.display_name} marked out of service.", "info")
     return redirect(url_for("stations.list_stations"))
@@ -133,6 +156,8 @@ def return_to_service(station_id):
         event_type="station_returned_to_service",
         message=f"Returned to service by {current_user.username}.",
     ))
+    log_audit("station_status_changed", target_type="station", target_id=station.id,
+              station_id=station.id, details={"status": "offline (returned to service)"})
     db.session.commit()
     flash(f"{station.display_name} returned to service.", "success")
     return redirect(url_for("stations.list_stations"))

@@ -30,6 +30,8 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
+CLIENT_VERSION = "0.2.0"
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -122,7 +124,7 @@ class GraceLabAPI:
             "hostname": self._hostname,
             "status": status,
             "current_session_id": current_session_id,
-            "client_version": "0.1.0",
+            "client_version": CLIENT_VERSION,
         })
 
     def get_config(self):

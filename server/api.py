@@ -121,13 +121,17 @@ def _update_station_seen(station, reported_status=None):
 def heartbeat(station):
     data = request.get_json(silent=True) or {}
     reported_status = data.get("status", "available")
+    client_version = data.get("client_version")
 
-    # Only accept known statuses from the client
     allowed = {"available", "in_use", "needs_attention"}
     if reported_status not in allowed:
         reported_status = "available"
 
     _update_station_seen(station, reported_status=reported_status)
+
+    if client_version and isinstance(client_version, str):
+        station.client_version = client_version[:32]
+
     db.session.commit()
 
     return jsonify({

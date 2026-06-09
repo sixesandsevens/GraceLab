@@ -17,6 +17,10 @@
     <li><a href="{{ url_for('sessions.batch') }}" {% if request.endpoint == 'sessions.batch' %}class="active"{% endif %}>Batch Print</a></li>
     <li><a href="{{ url_for('sessions.list_sessions') }}" {% if request.endpoint and request.endpoint.startswith('sessions.') %}class="active"{% endif %}>Sessions</a></li>
     <li><a href="{{ url_for('stations.list_stations') }}" {% if request.endpoint and request.endpoint.startswith('stations.') %}class="active"{% endif %}>Stations</a></li>
+    {% if current_user.is_admin() %}
+    <li><a href="{{ url_for('admin.audit') }}" {% if request.endpoint and request.endpoint.startswith('admin.audit') %}class="active"{% endif %}>Audit</a></li>
+    <li><a href="{{ url_for('admin.settings') }}" {% if request.endpoint == 'admin.settings' %}class="active"{% endif %}>Settings</a></li>
+    {% endif %}
   </ul>
   <div class="navbar-user">
     {{ current_user.username }}
