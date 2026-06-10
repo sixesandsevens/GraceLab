@@ -134,10 +134,30 @@ def heartbeat(station):
 
     db.session.commit()
 
+    # Include active session info so the client can recover after a reboot
+    # even if its local session-state.json was lost.
+    active_session_id = None
+    active_expires_at = None
+    active_warning_minutes = None
+    active_open_mode = None
+    if station.current_session_id:
+        sess = db.session.get(Session, station.current_session_id)
+        if sess and sess.status == "active" and sess.expires_at:
+            active_session_id = sess.id
+            active_expires_at = sess.expires_at.strftime("%Y-%m-%dT%H:%M:%S")
+            active_warning_minutes = int(Setting.get(
+                "warning_minutes", current_app.config["SESSION_WARNING_MINUTES"]
+            ))
+            active_open_mode = getattr(sess, "open_mode", False) or False
+
     return jsonify({
         "ok": True,
         "server_time": _server_time(),
         "station_status": station.status,
+        "active_session_id": active_session_id,
+        "active_expires_at": active_expires_at,
+        "active_warning_minutes": active_warning_minutes,
+        "active_open_mode": active_open_mode,
     })
 
 

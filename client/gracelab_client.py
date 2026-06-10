@@ -1319,6 +1319,30 @@ class GraceLabClient:
                 self.root.after(0, lambda s=station_status: self._show_needs_attention(
                     f"This station has been marked {s.replace('_', ' ')}."
                 ))
+            elif (
+                self._state == self.IDLE
+                and self._session_id is None
+                and resp
+                and resp.get("active_session_id")
+            ):
+                # Server has an active session for this station but we have no
+                # local session — this happens after a hard reboot when the
+                # session-state file was not written to disk in time.
+                log.info(
+                    "Heartbeat reports active session %s — starting crash recovery.",
+                    resp["active_session_id"],
+                )
+                self._show_recovering()
+                threading.Thread(
+                    target=self._recover_from_heartbeat,
+                    args=(
+                        resp["active_session_id"],
+                        resp["active_expires_at"],
+                        int(resp.get("active_warning_minutes") or 5),
+                        bool(resp.get("active_open_mode")),
+                    ),
+                    daemon=True,
+                ).start()
         except APIError as e:
             log.warning("Heartbeat failed: %s", e)
             if self._state == self.IDLE:
@@ -1331,6 +1355,42 @@ class GraceLabClient:
                 return
         finally:
             self._schedule_heartbeat()
+
+    def _recover_from_heartbeat(self, session_id, expires_at_str, warning_minutes=5,
+                                open_mode=False):
+        """Resume a session that the server knows about but the client lost on reboot."""
+        expires_at = self._parse_expires(expires_at_str)
+        remaining = expires_at - time.time()
+
+        if remaining <= 0:
+            log.info("Heartbeat recovery: session %s already expired — ending.", session_id)
+            self._session_id = session_id
+            self._expires_at = expires_at
+            self.root.after(0, lambda: self._show_ending("Clearing previous session…"))
+            self._end_and_reset("reboot")
+            return
+
+        log.info("Heartbeat recovery: resuming session %s with %.0f s remaining.", session_id, remaining)
+        self._session_id = session_id
+        self._expires_at = expires_at
+        self._is_open_session = open_mode
+        self._warning_seconds = warning_minutes * 60
+        self._save_session_state()
+        self._write_guest_timer_file()
+        start_script = self.cfg.get("paths", "start_script")
+        start_ok = self._run_script(start_script, "start", failure_event="start_script_failed")
+        if start_ok:
+            self.root.after(0, self._show_session_active)
+            self.root.after(self._sync_interval * 1000, self._sync_tick)
+        else:
+            self._clear_session_state()
+            try:
+                self.api.end(session_id, "failed")
+            except APIError:
+                pass
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Session resume failed. Please ask staff for help."
+            ))
 
     def _reconnect_loop(self):
         if self._state != self.OFFLINE:
