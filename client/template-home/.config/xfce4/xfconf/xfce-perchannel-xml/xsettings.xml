@@ -3,6 +3,6 @@
 <channel name="xsettings" version="1.0">
   <property name="Net" type="empty">
     <property name="ThemeName" type="string" value="Mint-X-Teal"/>
-    <property name="IconThemeName" type="string" value="Mint-X-Teal"/>
+    <property name="IconThemeName" type="string" value="Mint-Y-Teal"/>
   </property>
 </channel>
