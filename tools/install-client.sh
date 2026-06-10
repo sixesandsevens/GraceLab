@@ -564,6 +564,16 @@ EOF
 
 info "LightDM autologin configured → ${LIGHTDM_CONF_DIR}/90-gracelab.conf"
 
+# Configure slick-greeter background to match the desktop wallpaper
+SLICK_CONF="/etc/lightdm/slick-greeter.conf"
+GREETER_BG="${INSTALL_BASE}/assets/GraceDesktopBackground.png"
+cat > "${SLICK_CONF}" <<EOF
+[Greeter]
+background=${GREETER_BG}
+draw-user-backgrounds=false
+EOF
+info "slick-greeter background configured → ${SLICK_CONF}"
+
 # ---------------------------------------------------------------------------
 # AccountsService (greeter visibility)
 # ---------------------------------------------------------------------------
