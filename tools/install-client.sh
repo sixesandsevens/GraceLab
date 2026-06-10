@@ -423,6 +423,12 @@ cat > "${AUTOSTART_DIR}/mintwelcome.desktop" <<'EOF'
 Hidden=true
 EOF
 
+# Suppress system-wide magnus autostart for gracelab
+cat > "${AUTOSTART_DIR}/magnus-autostart.desktop" <<'EOF'
+[Desktop Entry]
+Hidden=true
+EOF
+
 chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "/home/${GRACELAB_USER}/.config"
 info "Autostart entries written (client wrapper + updater)."
 
