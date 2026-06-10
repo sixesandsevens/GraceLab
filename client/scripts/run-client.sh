@@ -49,14 +49,13 @@ _log "Wrapper started (PID $$)."
 _start_watchdog
 
 while true; do
-    rm -f "$UPDATE_FLAG"
-
     _log "Launching gracelab_client.py from ${CURRENT}"
     python3 "${CURRENT}/gracelab_client.py"
     EXIT=$?
 
     if [[ -f "$UPDATE_FLAG" ]]; then
         NEW_VER="$(cat "$UPDATE_FLAG" 2>/dev/null || echo '?')"
+        rm -f "$UPDATE_FLAG"
         _log "Update flag found (v${NEW_VER}). Relaunching against new version."
         _stop_watchdog
         sleep 1
