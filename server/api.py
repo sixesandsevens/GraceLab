@@ -148,7 +148,7 @@ def heartbeat(station):
             active_warning_minutes = int(Setting.get(
                 "warning_minutes", current_app.config["SESSION_WARNING_MINUTES"]
             ))
-            active_open_mode = getattr(sess, "open_mode", False) or False
+            active_open_mode = sess.code_display == "OPEN"
 
     return jsonify({
         "ok": True,

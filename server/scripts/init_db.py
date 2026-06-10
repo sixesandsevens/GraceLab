@@ -21,7 +21,7 @@ DEFAULT_SETTINGS = {
     "ticket_footer":                 "Ask staff if you need more time.",
     "station_offline_after_seconds": "90",
     "batch_code_max_count":          "36",
-    "client_updates_enabled":        "false",
+    "client_updates_enabled":        "true",
     "client_update_policy":          "idle_only",
     "client_update_channel":         "stable",
     "client_min_supported_version":  "",

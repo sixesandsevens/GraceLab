@@ -25,10 +25,15 @@
 
 set -euo pipefail
 
-CLIENT_VERSION="0.3.1"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_CLIENT_DIR="${SCRIPT_DIR}/../client"
+
+CLIENT_VERSION="$(python3 -c "
+import re, sys
+m = re.search(r\"CLIENT_VERSION\s*=\s*['\\\"](.+?)['\\\"]\", open(sys.argv[1]).read())
+print(m.group(1) if m else '')
+" "${REPO_CLIENT_DIR}/gracelab_client.py" 2>/dev/null || true)"
+[[ -n "$CLIENT_VERSION" ]] || { echo "ERROR: could not read CLIENT_VERSION from gracelab_client.py" >&2; exit 1; }
 REPO_TEMPLATE_DIR="${REPO_CLIENT_DIR}/template-home"
 
 INSTALL_BASE="/opt/gracelab-client"

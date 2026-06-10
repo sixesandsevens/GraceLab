@@ -34,10 +34,18 @@ _CONFIG_PATHS = [
                  "client_config.ini"),
 ]
 
+_LOG_FILE = "/var/log/gracelab/updater.log"
+_handlers = [logging.StreamHandler()]
+try:
+    os.makedirs(os.path.dirname(_LOG_FILE), exist_ok=True)
+    _handlers.append(logging.FileHandler(_LOG_FILE))
+except OSError:
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [gracelab-updater] %(levelname)s %(message)s",
-    handlers=[logging.StreamHandler()],
+    handlers=_handlers,
 )
 log = logging.getLogger("gracelab.updater")
 
