@@ -544,7 +544,7 @@ class GraceLabClient:
                  bg=WARN_BG, fg=WARN_FG, font=self._f_body).pack(pady=(10, 4))
 
         # ── Extension code entry ──────────────────────────────────────────
-        tk.Label(inner, text="Have another code? Enter it below to extend your session.",
+        tk.Label(inner, text="Have another code? Enter it to extend your session.",
                  bg=WARN_BG, fg=WARN_FG, font=self._f_small).pack(pady=(14, 4))
 
         ext_frame = tk.Frame(inner, bg=WARN_BG)
@@ -581,6 +581,15 @@ class GraceLabClient:
 
         self._ext_msg = tk.Label(inner, text="", bg=WARN_BG, fg=ERROR_FG, font=self._f_small)
         self._ext_msg.pack(pady=(6, 0))
+
+        tk.Button(
+            inner, text="Continue Session",
+            font=self._f_body, bg=WARN_BG, fg=WARN_FG,
+            activebackground=WARN_BG, activeforeground=WARN_FG,
+            relief=tk.FLAT, cursor="hand2", padx=10, pady=6,
+            bd=0, underline=0,
+            command=self._dismiss_warning,
+        ).pack(pady=(16, 0))
         # ─────────────────────────────────────────────────────────────────
 
         self._tick()
@@ -908,8 +917,8 @@ class GraceLabClient:
         formatted = raw[:3] + "-" + raw[3:] if len(raw) > 3 else raw
         self._ext_var.trace_remove("write", self._ext_trace_id)
         self._ext_var.set(formatted)
-        self._ext_entry.icursor(tk.END)
         self._ext_trace_id = self._ext_var.trace_add("write", self._format_ext_entry)
+        self.root.after(0, lambda: self._ext_entry.icursor(tk.END))
 
     def _submit_extension(self):
         if self._state != self.SESSION_WARNING:
@@ -1024,6 +1033,12 @@ class GraceLabClient:
         if self._sync_job:
             self.root.after_cancel(self._sync_job)
             self._sync_job = None
+
+    def _dismiss_warning(self):
+        """User chose to continue the session without extending — go back to active screen."""
+        if self._state != self.SESSION_WARNING:
+            return
+        self._show_session_active()
 
     def _on_warning(self):
         self._show_warning()
