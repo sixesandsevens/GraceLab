@@ -70,4 +70,20 @@ TMP_LINK="${CURRENT_LINK}.new"
 ln -s "$RELEASE_DIR" "$TMP_LINK"
 mv -Tf "$TMP_LINK" "$CURRENT_LINK"
 
+# ---------------------------------------------------------------------------
+# System config that requires root (idempotent, safe to rewrite on every update)
+# ---------------------------------------------------------------------------
+
+# slick-greeter background — keep in sync with the desktop wallpaper
+SLICK_CONF="/etc/lightdm/slick-greeter.conf"
+GREETER_BG="${INSTALL_BASE}/assets/GraceDesktopBackground.png"
+if [[ -f "$GREETER_BG" ]]; then
+    cat > "${SLICK_CONF}" <<EOF
+[Greeter]
+background=${GREETER_BG}
+draw-user-backgrounds=false
+EOF
+    echo "slick-greeter background updated → ${SLICK_CONF}"
+fi
+
 echo "Installed gracelab-client ${VERSION} → ${RELEASE_DIR}"
