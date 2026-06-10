@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.5"
+CLIENT_VERSION = "0.3.6"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -484,7 +484,7 @@ class GraceLabClient:
             ))
             return
 
-        self.root.after(0, self._show_session_active)
+        self.root.after(0, self._start_session_active)
         self.root.after(self._sync_interval * 1000, self._sync_tick)
 
     def _show_validating(self):
@@ -501,9 +501,13 @@ class GraceLabClient:
         outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         tk.Label(outer, text="Starting session…", bg=BG, fg=FG, font=self._f_heading).pack()
 
+    def _start_session_active(self):
+        """Call instead of _show_session_active when a session is newly started or extended."""
+        self._warning_fired = False
+        self._show_session_active()
+
     def _show_session_active(self):
         self._set_state(self.SESSION_ACTIVE)
-        self._warning_fired = False
         # Force the next timer tick to switch immediately to guestlab. Without
         # this, a new session started soon after the last one can sit on the
         # GraceLab timer screen until the old 60-second throttle expires.
@@ -793,7 +797,7 @@ class GraceLabClient:
             start_ok = self._run_script(start_script, "start",
                                         failure_event="start_script_failed")
             if start_ok:
-                self.root.after(0, self._show_session_active)
+                self.root.after(0, self._start_session_active)
                 self.root.after(self._sync_interval * 1000, self._sync_tick)
             else:
                 self._clear_session_state()
@@ -906,7 +910,7 @@ class GraceLabClient:
             self._expires_at = None
             return
 
-        self.root.after(0, self._show_session_active)
+        self.root.after(0, self._start_session_active)
         self.root.after(self._sync_interval * 1000, self._sync_tick)
 
     def _idle_with_error(self, msg):
@@ -956,10 +960,9 @@ class GraceLabClient:
 
         def _apply():
             self._expires_at = new_expires
-            self._warning_fired = False
             self._save_session_state()
             self._write_guest_timer_file()
-            self._show_session_active()
+            self._start_session_active()
 
         self.root.after(0, _apply)
 
@@ -1127,8 +1130,7 @@ class GraceLabClient:
                 # go back to active screen so the amber screen doesn't stay up.
                 remaining = new_expires - time.time()
                 if self._state == self.SESSION_WARNING and remaining > self._warning_seconds:
-                    self._warning_fired = False
-                    self._show_session_active()
+                    self._start_session_active()
 
         self._sync_job = self.root.after(self._sync_interval * 1000, self._sync_tick)
 
@@ -1383,7 +1385,7 @@ class GraceLabClient:
         start_script = self.cfg.get("paths", "start_script")
         start_ok = self._run_script(start_script, "start", failure_event="start_script_failed")
         if start_ok:
-            self.root.after(0, self._show_session_active)
+            self.root.after(0, self._start_session_active)
             self.root.after(self._sync_interval * 1000, self._sync_tick)
         else:
             self._clear_session_state()
