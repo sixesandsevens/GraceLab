@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.8"
+CLIENT_VERSION = "0.3.9"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -522,6 +522,7 @@ class GraceLabClient:
 
         self._timer_label = tk.Label(outer, text="--:--", bg=BG, fg=FG, font=self._f_timer)
         self._timer_label.pack(pady=20)
+        self._timer_label.bind("<Button-1>", self._on_timer_click)
 
         tk.Label(outer, text="Time remaining", bg=BG, fg=FG_MUTED, font=self._f_body).pack()
         tk.Label(outer,
@@ -1046,10 +1047,21 @@ class GraceLabClient:
             return
         self._show_session_active()
 
+    def _on_timer_click(self, _event=None):
+        """Clicking the timer after the warning has fired re-opens the warning screen."""
+        if self._state == self.SESSION_ACTIVE and self._warning_fired:
+            self._on_warning()
+
     def _on_warning(self):
         self._show_warning()
         threading.Thread(target=self._switch_to_gracelab, daemon=True).start()
         threading.Thread(target=self._send_warning_event, daemon=True).start()
+        # Make the timer label look clickable so the user knows they can
+        # re-open this screen after dismissing it.
+        try:
+            self._timer_label.config(cursor="hand2")
+        except (tk.TclError, AttributeError):
+            pass
 
     def _send_warning_event(self):
         try:
