@@ -83,7 +83,14 @@ cp "${REPO_CLIENT_DIR}/updater/"*.py "${STAGE}/updater/" 2>/dev/null || true
 # Invalidate any cached checksum for the same version
 rm -f "${OUTFILE}.sha256"
 
-tar -czf "$OUTFILE" -C "$STAGE" .
+# Deterministic tarball: pin all entry timestamps to the latest git commit
+# time in the client directory so the hash is stable across repeated runs.
+GIT_MTIME="$(git -C "${REPO_CLIENT_DIR}" log -1 --format='%cI' 2>/dev/null || echo '1970-01-01T00:00:00+00:00')"
+
+tar --sort=name \
+    --mtime="$GIT_MTIME" \
+    --owner=0 --group=0 --numeric-owner \
+    -czf "$OUTFILE" -C "$STAGE" .
 
 CHECKSUM="$(sha256sum "$OUTFILE" | cut -d' ' -f1)"
 printf '%s  %s\n' "$CHECKSUM" "$(basename "$OUTFILE")" > "${OUTFILE}.sha256"
