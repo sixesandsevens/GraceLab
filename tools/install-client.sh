@@ -429,6 +429,19 @@ cat > "${AUTOSTART_DIR}/magnus-autostart.desktop" <<'EOF'
 Hidden=true
 EOF
 
+# Kill light-locker and disable X screensaver/DPMS at every login
+cat > "${AUTOSTART_DIR}/gracelab-nodpms.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=GraceLab No-DPMS
+Comment=Disable screen blanking and lock for kiosk session
+Exec=bash -c 'pkill -f light-locker; pkill -f xscreensaver; pkill -f xfce4-screensaver; xset s off; xset s noblank; xset -dpms'
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5
+Hidden=false
+NoDisplay=true
+EOF
+
 chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "/home/${GRACELAB_USER}/.config"
 info "Autostart entries written (client wrapper + updater)."
 
@@ -475,6 +488,36 @@ cat > "${GRACELAB_XFCONF_DIR}/xfce4-keyboard-shortcuts.xml" <<'XMLEOF'
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up" type="string" value=""/>
     </property>
+  </property>
+</channel>
+XMLEOF
+
+# Disable xfce4-screensaver lock
+cat > "${GRACELAB_XFCONF_DIR}/xfce4-screensaver.xml" <<'XMLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-screensaver" version="1.0">
+  <property name="saver" type="empty">
+    <property name="enabled" type="bool" value="false"/>
+    <property name="mode" type="int" value="0"/>
+  </property>
+  <property name="lock" type="empty">
+    <property name="enabled" type="bool" value="false"/>
+    <property name="snoopy" type="bool" value="false"/>
+  </property>
+</channel>
+XMLEOF
+
+# Disable xfce4-power-manager display sleep and lock-on-suspend
+cat > "${GRACELAB_XFCONF_DIR}/xfce4-power-manager.xml" <<'XMLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-power-manager" version="1.0">
+  <property name="xfce4-power-manager" type="empty">
+    <property name="dpms-enabled" type="bool" value="false"/>
+    <property name="blank-on-ac" type="int" value="0"/>
+    <property name="dpms-on-ac-sleep" type="uint" value="0"/>
+    <property name="dpms-on-ac-off" type="uint" value="0"/>
+    <property name="lock-screen-suspend-hibernate" type="bool" value="false"/>
+    <property name="logind-handle-lid-switch" type="bool" value="false"/>
   </property>
 </channel>
 XMLEOF

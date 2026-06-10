@@ -39,10 +39,15 @@ _stop_watchdog() {
     fi
 }
 
-# Suppress update notifier on first run
+# Suppress update notifier and screensaver/DPMS on every start
 DISABLE_UPDATER="${CURRENT}/scripts/disable-updater.sh"
 if [[ -x "$DISABLE_UPDATER" ]]; then
     bash "$DISABLE_UPDATER" >> "$LOG" 2>&1 || true
+fi
+
+DISABLE_SCREENSAVER="${CURRENT}/scripts/disable-screensaver.sh"
+if [[ -x "$DISABLE_SCREENSAVER" ]]; then
+    bash "$DISABLE_SCREENSAVER" >> "$LOG" 2>&1 || true
 fi
 
 _log "Wrapper started (PID $$)."
