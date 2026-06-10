@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.4"
+CLIENT_VERSION = "0.3.5"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -302,6 +302,9 @@ class GraceLabClient:
             self._build_idle_open(outer)
         else:
             self._build_idle_code_entry(outer)
+
+        tk.Label(self._main, text=f"v{CLIENT_VERSION}", bg=BG, fg="#374151",
+                 font=self._f_small).place(relx=1.0, rely=1.0, anchor=tk.SE, x=-10, y=-10)
 
     def _build_idle_open(self, outer):
         tk.Label(outer, text="Welcome", bg=BG, fg=FG,
