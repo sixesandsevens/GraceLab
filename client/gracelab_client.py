@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.3"
+CLIENT_VERSION = "0.3.4"
 
 # ---------------------------------------------------------------------------
 # Logging
