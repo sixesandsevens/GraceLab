@@ -76,6 +76,18 @@ chmod +x "${STAGE}/scripts/"*.sh
 # Updater scripts
 cp "${REPO_CLIENT_DIR}/updater/"*.py "${STAGE}/updater/" 2>/dev/null || true
 
+# Assets (wallpaper, icons, etc.)
+if [[ -d "${REPO_CLIENT_DIR}/assets" ]]; then
+    mkdir -p "${STAGE}/assets"
+    rsync -a --exclude='.gitkeep' "${REPO_CLIENT_DIR}/assets/" "${STAGE}/assets/"
+fi
+
+# Guest desktop template
+if [[ -d "${REPO_CLIENT_DIR}/template-home" ]]; then
+    mkdir -p "${STAGE}/template-home"
+    rsync -a --delete "${REPO_CLIENT_DIR}/template-home/" "${STAGE}/template-home/"
+fi
+
 # ---------------------------------------------------------------------------
 # Create tarball and checksum
 # ---------------------------------------------------------------------------

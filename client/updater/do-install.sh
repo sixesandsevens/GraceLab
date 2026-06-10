@@ -71,6 +71,34 @@ ln -s "$RELEASE_DIR" "$TMP_LINK"
 mv -Tf "$TMP_LINK" "$CURRENT_LINK"
 
 # ---------------------------------------------------------------------------
+# Sync shared data from this release
+# (assets and template-home live outside the versioned release dir so they
+#  are reachable at a stable path regardless of which release is current)
+# ---------------------------------------------------------------------------
+
+# Assets: wallpaper, icons, etc.
+ASSETS_SRC="${RELEASE_DIR}/assets"
+ASSETS_DST="${INSTALL_BASE}/assets"
+if [[ -d "$ASSETS_SRC" ]]; then
+    mkdir -p "$ASSETS_DST"
+    rsync -a --delete "$ASSETS_SRC/" "$ASSETS_DST/"
+    chown -R root:root "$ASSETS_DST"
+    echo "Assets updated → ${ASSETS_DST}"
+fi
+
+# Guest desktop template: only update the source here.
+# reset_guest_home.sh applies it to /home/guestlab at the next session reset
+# so we never touch a live guest session.
+TEMPLATE_SRC="${RELEASE_DIR}/template-home"
+TEMPLATE_DST="${INSTALL_BASE}/template-home"
+if [[ -d "$TEMPLATE_SRC" ]]; then
+    mkdir -p "$TEMPLATE_DST"
+    rsync -a --delete "$TEMPLATE_SRC/" "$TEMPLATE_DST/"
+    chown -R root:root "$TEMPLATE_DST"
+    echo "template-home updated → ${TEMPLATE_DST}"
+fi
+
+# ---------------------------------------------------------------------------
 # System config that requires root (idempotent, safe to rewrite on every update)
 # ---------------------------------------------------------------------------
 
