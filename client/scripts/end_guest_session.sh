@@ -14,6 +14,9 @@ source "${SCRIPT_DIR}/common.sh"
 
 gl_log INFO "end_guest_session: hook fired"
 
+# Clear stale guest-requested logout flags before and after killing guestlab.
+gl_clear_guest_logout_flags
+
 # Kill all guestlab processes and terminate the login session.
 gl_kill_guest
 

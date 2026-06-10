@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-CLIENT_VERSION="0.3.0"
+CLIENT_VERSION="0.3.1"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_CLIENT_DIR="${SCRIPT_DIR}/../client"
@@ -42,6 +42,8 @@ SUDOERS_FILE="/etc/sudoers.d/gracelab-client"
 
 GRACELAB_USER="gracelab"
 GUEST_USER="guestlab"
+IPC_GROUP="gracelab-ipc"
+IPC_DIR="/run/gracelab"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -154,15 +156,19 @@ fi
 # nopasswdlogin group
 # ---------------------------------------------------------------------------
 
-step "Configuring nopasswdlogin group"
+step "Configuring login and IPC groups"
 
 if ! getent group nopasswdlogin >/dev/null 2>&1; then
     groupadd nopasswdlogin
     info "Created group: nopasswdlogin"
 fi
-usermod -aG nopasswdlogin "${GRACELAB_USER}"
-usermod -aG nopasswdlogin "${GUEST_USER}"
-info "Added ${GRACELAB_USER} and ${GUEST_USER} to nopasswdlogin."
+if ! getent group "${IPC_GROUP}" >/dev/null 2>&1; then
+    groupadd "${IPC_GROUP}"
+    info "Created group: ${IPC_GROUP}"
+fi
+usermod -aG nopasswdlogin,"${IPC_GROUP}" "${GRACELAB_USER}"
+usermod -aG nopasswdlogin,"${IPC_GROUP}" "${GUEST_USER}"
+info "Added ${GRACELAB_USER} and ${GUEST_USER} to nopasswdlogin and ${IPC_GROUP}."
 
 # ---------------------------------------------------------------------------
 # Directory layout
@@ -171,6 +177,7 @@ info "Added ${GRACELAB_USER} and ${GUEST_USER} to nopasswdlogin."
 step "Creating directory layout"
 
 mkdir -p "${INSTALL_BASE}/downloads"
+mkdir -p "${IPC_DIR}"
 mkdir -p "${RELEASE_DIR}/scripts"
 mkdir -p "${RELEASE_DIR}/updater"
 mkdir -p "$CONFIG_DIR"
@@ -182,8 +189,16 @@ mkdir -p "$LOG_DIR"
 chown -R root:root "$INSTALL_BASE"
 chown "${GRACELAB_USER}:${GRACELAB_USER}" "${INSTALL_BASE}/downloads"
 chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "$LOG_DIR"
+chown root:"${IPC_GROUP}" "${IPC_DIR}"
+chmod 2775 "${IPC_DIR}"
 
 info "Directories OK."
+
+cat > /etc/tmpfiles.d/gracelab.conf <<EOF
+d ${IPC_DIR} 2775 root ${IPC_GROUP} - -
+EOF
+systemd-tmpfiles --create /etc/tmpfiles.d/gracelab.conf 2>/dev/null || true
+info "IPC directory configured → ${IPC_DIR}"
 
 # ---------------------------------------------------------------------------
 # Install client files
@@ -194,7 +209,9 @@ step "Installing client files → ${RELEASE_DIR}"
 find "${REPO_CLIENT_DIR}" -maxdepth 1 -name "*.py" -exec cp {} "${RELEASE_DIR}/" \;
 cp "${REPO_CLIENT_DIR}/client_config.ini.example" "${RELEASE_DIR}/"
 rsync -a "${REPO_CLIENT_DIR}/scripts/" "${RELEASE_DIR}/scripts/"
+rsync -a "${REPO_CLIENT_DIR}/updater/" "${RELEASE_DIR}/updater/"
 chmod +x "${RELEASE_DIR}/scripts/"*.sh
+chmod +x "${RELEASE_DIR}/updater/"*.sh 2>/dev/null || true
 
 info "Client files installed."
 
@@ -251,7 +268,7 @@ cat > "/usr/share/applications/gracelab-endsession.desktop" <<EOF
 Type=Application
 Name=End Session
 Comment=End your GraceLab session
-Exec=bash -c 'zenity --question --title="End Session" --text="End your session and return to the main screen?\n\nUnsaved files will be deleted." --ok-label="End Session" --cancel-label="Stay" --icon-name=system-log-out 2>/dev/null && touch /tmp/gracelab-guest-logout'
+Exec=bash -c 'zenity --question --title="End Session" --text="End your session and return to the main screen?\n\nUnsaved files will be deleted." --ok-label="End Session" --cancel-label="Stay" --icon-name=system-log-out 2>/dev/null && touch /run/gracelab/guest-logout'
 Icon=system-log-out
 Terminal=false
 EOF

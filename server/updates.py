@@ -81,16 +81,21 @@ def update_check():
     if err:
         return err
 
-    if not Setting.get_bool("client_updates_enabled", False):
-        return jsonify({"ok": True, "update_available": False, "reason": "updates_disabled"})
-
     data = request.get_json(silent=True) or {}
     channel = data.get("channel", "stable")
     reported_version = data.get("current_version") or station.client_version or ""
 
-    # Determine target version: per-station override takes priority
-    if station.desired_client_version:
-        target_version = station.desired_client_version
+    # Determine target version: per-station override takes priority. A manual
+    # station push should still work even if the global automatic-update toggle
+    # is off; otherwise the UI can say "queued" while clients always receive
+    # updates_disabled.
+    forced_target = station.desired_client_version or ""
+    if forced_target:
+        target_version = forced_target
+    elif not Setting.get_bool("client_updates_enabled", False):
+        station.last_update_check_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify({"ok": True, "update_available": False, "reason": "updates_disabled"})
     elif channel == "beta":
         target_version = Setting.get("client_beta_version", "")
     else:

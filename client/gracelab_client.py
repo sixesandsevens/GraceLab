@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.0"
+CLIENT_VERSION = "0.3.1"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -169,7 +169,8 @@ class GraceLabAPI:
 # ---------------------------------------------------------------------------
 
 GUEST_TIMER_FILE    = "/tmp/gracelab-session.json"
-GUEST_LOGOUT_FLAG   = "/tmp/gracelab-guest-logout"
+GUEST_LOGOUT_FLAG   = "/run/gracelab/guest-logout"
+LEGACY_GUEST_LOGOUT_FLAG = "/tmp/gracelab-guest-logout"
 UPDATE_READY_FLAG   = "/tmp/gracelab-update-ready"
 
 BG          = "#111827"
@@ -500,6 +501,10 @@ class GraceLabClient:
     def _show_session_active(self):
         self._set_state(self.SESSION_ACTIVE)
         self._warning_fired = False
+        # Force the next timer tick to switch immediately to guestlab. Without
+        # this, a new session started soon after the last one can sit on the
+        # GraceLab timer screen until the old 60-second throttle expires.
+        self._last_guestlab_switch = 0
         self._clear()
 
         outer = tk.Frame(self._main, bg=BG)
@@ -681,11 +686,16 @@ class GraceLabClient:
         self._clear_guest_logout_flag()
 
     def _clear_guest_logout_flag(self):
-        try:
-            if os.path.exists(GUEST_LOGOUT_FLAG):
-                os.unlink(GUEST_LOGOUT_FLAG)
-        except Exception as e:
-            log.warning("Could not clear guest logout flag: %s", e)
+        # Newer installs use /run/gracelab, which is group-writable by both
+        # gracelab and guestlab. Also try to remove the legacy /tmp flag; in
+        # sticky /tmp this may fail if guestlab owns it, but the root lifecycle
+        # scripts also clean it up.
+        for flag in (GUEST_LOGOUT_FLAG, LEGACY_GUEST_LOGOUT_FLAG):
+            try:
+                if os.path.exists(flag):
+                    os.unlink(flag)
+            except Exception as e:
+                log.warning("Could not clear guest logout flag %s: %s", flag, e)
 
     def _write_guest_timer_file(self):
         if self._is_open_session:
@@ -970,11 +980,16 @@ class GraceLabClient:
             return
 
         # Guest clicked "End Session" from their desktop.
-        if os.path.exists(GUEST_LOGOUT_FLAG):
+        logout_flag = None
+        for flag in (GUEST_LOGOUT_FLAG, LEGACY_GUEST_LOGOUT_FLAG):
+            if os.path.exists(flag):
+                logout_flag = flag
+                break
+        if logout_flag:
             try:
-                os.unlink(GUEST_LOGOUT_FLAG)
-            except OSError:
-                pass
+                os.unlink(logout_flag)
+            except OSError as e:
+                log.warning("Could not remove logout flag %s: %s", logout_flag, e)
             self._on_guest_logout()
             return
 
@@ -982,7 +997,7 @@ class GraceLabClient:
         # greeter ever surfaces the gracelab session mid-session, it snaps back
         # automatically within ~60 s without requiring staff intervention.
         now = time.time()
-        if now - self._last_guestlab_switch >= 60:
+        if self._state == self.SESSION_ACTIVE and now - self._last_guestlab_switch >= 60:
             self._last_guestlab_switch = now
             threading.Thread(target=self._ensure_guestlab_active, daemon=True).start()
 
@@ -1012,6 +1027,7 @@ class GraceLabClient:
 
     def _on_warning(self):
         self._show_warning()
+        threading.Thread(target=self._switch_to_gracelab, daemon=True).start()
         threading.Thread(target=self._send_warning_event, daemon=True).start()
 
     def _send_warning_event(self):
@@ -1119,6 +1135,15 @@ class GraceLabClient:
             env = dict(os.environ)
             env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
             subprocess.run(["dm-tool", "switch-to-user", "guestlab"],
+                           env=env, timeout=3, capture_output=True)
+        except Exception:
+            pass
+
+    def _switch_to_gracelab(self):
+        try:
+            env = dict(os.environ)
+            env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
+            subprocess.run(["dm-tool", "switch-to-user", "gracelab"],
                            env=env, timeout=3, capture_output=True)
         except Exception:
             pass

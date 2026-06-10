@@ -14,6 +14,9 @@ source "${SCRIPT_DIR}/common.sh"
 
 gl_log INFO "reset_guest_home: hook fired"
 
+# Root can clean up both new and legacy IPC flags.
+gl_clear_guest_logout_flags
+
 if [ ! -d "$TEMPLATE_HOME" ]; then
     gl_log ERROR "reset_guest_home: template not found at ${TEMPLATE_HOME}"
     exit 1

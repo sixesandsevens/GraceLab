@@ -16,7 +16,8 @@ gl_log INFO "start_guest_session: hook fired"
 # Unlock the guest account so it can be used.
 passwd -u "$GUEST_USER" 2>/dev/null || true
 
-# Clear any stale lock files from a previous session.
+# Clear any stale lock/logout files from a previous session.
+gl_clear_guest_logout_flags
 rm -f /tmp/.gracelab-guest-* 2>/dev/null || true
 
 # --------------------------------------------------------------------------

@@ -6,6 +6,9 @@ GUEST_HOME="/home/${GUEST_USER}"
 TEMPLATE_HOME="/opt/gracelab-client/template-home"
 LOG_DIR="/var/log/gracelab"
 LOG="${LOG_DIR}/lifecycle.log"
+IPC_DIR="/run/gracelab"
+GUEST_LOGOUT_FLAG="${IPC_DIR}/guest-logout"
+LEGACY_GUEST_LOGOUT_FLAG="/tmp/gracelab-guest-logout"
 
 gl_log() {
     local level="$1"; shift
@@ -19,4 +22,9 @@ gl_kill_guest() {
         sleep 1
         loginctl terminate-user "$GUEST_USER" 2>/dev/null || true
     fi
+}
+
+
+gl_clear_guest_logout_flags() {
+    rm -f "$GUEST_LOGOUT_FLAG" "$LEGACY_GUEST_LOGOUT_FLAG" 2>/dev/null || true
 }
