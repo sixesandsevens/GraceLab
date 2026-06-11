@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Terminal access is disabled on this computer.
+exit 1

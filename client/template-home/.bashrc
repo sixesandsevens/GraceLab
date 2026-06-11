@@ -115,3 +115,7 @@ if ! shopt -oq posix; then
     . /etc/bash_completion
   fi
 fi
+
+# GraceLab: ~/.local/bin is first in PATH so terminal blocker stubs shadow
+# system terminal emulators for the guest account.
+export PATH="$HOME/.local/bin:$PATH"

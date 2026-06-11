@@ -647,6 +647,63 @@ EOF
 info "Firefox policies configured → /etc/firefox/policies/policies.json"
 
 # ---------------------------------------------------------------------------
+# Guest session hardening
+# ---------------------------------------------------------------------------
+
+step "Hardening guest session"
+
+# ── Thunar: empty custom actions (removes "Open Terminal Here") ───────────
+GUEST_THUNAR_DIR="/home/${GUEST_USER}/.config/Thunar"
+mkdir -p "$GUEST_THUNAR_DIR"
+cat > "${GUEST_THUNAR_DIR}/uca.xml" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+</actions>
+EOF
+chown -R "${GUEST_USER}:${GUEST_USER}" "$GUEST_THUNAR_DIR"
+info "Thunar custom actions cleared (no Open Terminal Here)."
+
+# ── Block terminal emulators for guestlab via wrapper scripts ─────────────
+# Each wrapper prints a message and exits so the binary is effectively
+# inaccessible even if the .desktop file or keyboard shortcut fires.
+BLOCK_DIR="/usr/local/lib/gracelab/block-terminals"
+mkdir -p "$BLOCK_DIR"
+
+cat > "${BLOCK_DIR}/blocked-terminal" <<'EOF'
+#!/usr/bin/env bash
+# Terminal access is disabled on this computer.
+exit 1
+EOF
+chmod 755 "${BLOCK_DIR}/blocked-terminal"
+
+# Shadow each known terminal emulator for guestlab only via ~/.local/bin
+GUEST_LOCAL_BIN="/home/${GUEST_USER}/.local/bin"
+mkdir -p "$GUEST_LOCAL_BIN"
+
+for term in \
+    xterm xfce4-terminal xfce4-console gnome-terminal \
+    konsole lxterminal rxvt urxvt kitty alacritty tilix \
+    xdg-terminal sensible-terminal
+do
+    ln -sf "${BLOCK_DIR}/blocked-terminal" "${GUEST_LOCAL_BIN}/${term}"
+done
+
+# Ensure ~/.local/bin is first in PATH for guestlab
+GUEST_BASHRC="/home/${GUEST_USER}/.bashrc"
+if ! grep -q "gracelab-terminal-block" "$GUEST_BASHRC" 2>/dev/null; then
+    cat >> "$GUEST_BASHRC" <<'EOF'
+
+# GraceLab: terminal access disabled
+export PATH="$HOME/.local/bin:$PATH"
+EOF
+fi
+
+chown -R "${GUEST_USER}:${GUEST_USER}" "$GUEST_LOCAL_BIN" "$GUEST_BASHRC" 2>/dev/null || true
+info "Terminal emulators blocked for ${GUEST_USER}."
+
+info "Guest session hardening complete."
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
