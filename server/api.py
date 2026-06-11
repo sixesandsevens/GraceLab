@@ -12,6 +12,11 @@ csrf.exempt(api_bp)
 # ---------------------------------------------------------------------------
 # Per-station code attempt throttle (in-process, resets on server restart)
 # 5 failures within a window → 30-second cooldown
+#
+# TODO: This is in-memory and assumes a single Gunicorn worker. Cooldown
+# state is lost on server restart and is not shared across workers.
+# For multi-worker or internet-facing deployment, replace with a
+# Redis-backed store (e.g. Flask-Limiter with RedisStorage).
 # ---------------------------------------------------------------------------
 _FAIL_WINDOW_SECONDS = 300   # 5 minutes rolling window
 _FAIL_LIMIT = 5              # failures before cooldown

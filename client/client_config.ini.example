@@ -14,9 +14,10 @@ sync_interval_seconds = 12
 
 [paths]
 # Production install paths (requires sudoers entry for gracelab user)
-# start_script = sudo /opt/gracelab-client/current/scripts/start_guest_session.sh
-# end_script   = sudo /opt/gracelab-client/current/scripts/end_guest_session.sh
-# reset_script = sudo /opt/gracelab-client/current/scripts/reset_guest_home.sh
+# start_script  = sudo /opt/gracelab-client/current/scripts/start_guest_session.sh
+# end_script    = sudo /opt/gracelab-client/current/scripts/end_guest_session.sh
+# reset_script  = sudo /opt/gracelab-client/current/scripts/reset_guest_home.sh
+# session_state = /var/lib/gracelab-client/session-state.json
 #
 # For local dev/testing — point at the repo scripts directory:
 start_script = scripts/start_guest_session.sh

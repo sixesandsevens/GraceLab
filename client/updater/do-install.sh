@@ -13,6 +13,7 @@ set -euo pipefail
 
 INSTALL_BASE="/opt/gracelab-client"
 DOWNLOADS_DIR="${INSTALL_BASE}/downloads"
+STATE_DIR="/var/lib/gracelab-client"
 
 VERSION="${1:-}"
 TARBALL="${2:-}"
@@ -41,6 +42,21 @@ fi
 
 if [[ ! -f "$REAL_TARBALL" ]]; then
     echo "Tarball not found: $REAL_TARBALL" >&2
+    exit 1
+fi
+
+# Filename must match the version we were given (prevents mismatched installs)
+EXPECTED_BASENAME="gracelab-client-${VERSION}.tar.gz"
+if [[ "$(basename "$REAL_TARBALL")" != "$EXPECTED_BASENAME" ]]; then
+    echo "Tarball filename does not match version: expected ${EXPECTED_BASENAME}" >&2
+    exit 1
+fi
+
+# Inspect tarball for path traversal or absolute paths before extracting
+UNSAFE="$(tar -tzf "$REAL_TARBALL" 2>/dev/null | grep -E '(^/|(^|/)\.\.(/|$))' || true)"
+if [[ -n "$UNSAFE" ]]; then
+    echo "Tarball contains unsafe paths — aborting:" >&2
+    echo "$UNSAFE" >&2
     exit 1
 fi
 
@@ -112,6 +128,13 @@ background=${GREETER_BG}
 draw-user-backgrounds=false
 EOF
     echo "slick-greeter background updated → ${SLICK_CONF}"
+fi
+
+# Ensure runtime state directory exists and is gracelab-writable
+GRACELAB_USER="gracelab"
+if id "$GRACELAB_USER" &>/dev/null; then
+    mkdir -p "$STATE_DIR"
+    chown "${GRACELAB_USER}:${GRACELAB_USER}" "$STATE_DIR"
 fi
 
 echo "Installed gracelab-client ${VERSION} → ${RELEASE_DIR}"

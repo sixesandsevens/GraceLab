@@ -206,8 +206,12 @@ def run():
     log.info("Updater started. channel=%s  policy=%s  interval=%ds",
              channel, policy, check_interval)
 
+    first_run = True
     while True:
-        time.sleep(check_interval)
+        if first_run:
+            first_run = False
+        else:
+            time.sleep(check_interval)
 
         current_version = get_current_version()
         result = check_for_update(cfg, current_version)

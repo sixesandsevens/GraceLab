@@ -187,12 +187,14 @@ mkdir -p "${RELEASE_DIR}/scripts"
 mkdir -p "${RELEASE_DIR}/updater"
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$LOG_DIR"
+mkdir -p "/var/lib/gracelab-client"
 
 # Root owns the entire installation tree so gracelab cannot modify scripts
 # that are executed as root via sudoers (privilege escalation prevention).
-# Only the downloads scratch dir needs to be gracelab-writable.
+# Only the downloads scratch dir and runtime state dir need to be gracelab-writable.
 chown -R root:root "$INSTALL_BASE"
 chown "${GRACELAB_USER}:${GRACELAB_USER}" "${INSTALL_BASE}/downloads"
+chown "${GRACELAB_USER}:${GRACELAB_USER}" "/var/lib/gracelab-client"
 chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "$LOG_DIR"
 chown root:"${IPC_GROUP}" "${IPC_DIR}"
 chmod 2775 "${IPC_DIR}"

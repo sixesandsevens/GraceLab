@@ -71,6 +71,10 @@ class Session(db.Model):
     __tablename__ = "sessions"
 
     id = db.Column(db.Integer, primary_key=True)
+    # code_display is the human-readable code printed on cards and used for
+    # validation. code_hash is stored alongside it but validation currently
+    # queries by code_display directly (required so staff can look up codes).
+    # code_hash is reserved for future non-display validation workflows.
     code_hash = db.Column(db.String(256), nullable=False)
     code_display = db.Column(db.String(16), nullable=False)
     status = db.Column(db.String(32), nullable=False, default="created")

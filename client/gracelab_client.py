@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.11"
+CLIENT_VERSION = "0.3.12"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -678,7 +678,7 @@ class GraceLabClient:
 
     def _session_state_path(self):
         return self.cfg.get("paths", "session_state",
-                            fallback="/opt/gracelab-client/session-state.json")
+                            fallback="/var/lib/gracelab-client/session-state.json")
 
     def _save_session_state(self):
         import datetime

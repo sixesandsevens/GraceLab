@@ -27,6 +27,9 @@ class Config:
     # Client update packages directory (on the server)
     UPDATES_DIR = "/var/lib/gracelab/updates"
 
+    # Cap upload size at 256 MB — enough for any realistic client package
+    MAX_CONTENT_LENGTH = 256 * 1024 * 1024
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
