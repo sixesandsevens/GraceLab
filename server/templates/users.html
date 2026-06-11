@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Users</h2>
+  <a href="{{ url_for('admin.create_user') }}" class="btn btn-primary">Add User</a>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3>Staff & Admin Accounts</h3>
+    <span class="card-header-count">{{ users | length }} accounts</span>
+  </div>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Last Login</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td><strong>{{ u.username }}</strong>{% if u.id == current_user.id %} <span class="status-badge status-active">you</span>{% endif %}</td>
+        <td><span class="role-badge role-{{ u.role }}">{{ u.role }}</span></td>
+        <td>
+          {% if u.active %}
+            <span class="status-badge status-available">active</span>
+          {% else %}
+            <span class="status-badge status-offline">inactive</span>
+          {% endif %}
+        </td>
+        <td>{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+        <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else 'never' }}</td>
+        <td class="action-cell">
+          <a href="{{ url_for('admin.edit_user', user_id=u.id) }}" class="btn btn-sm btn-secondary">Edit</a>
+          {% if u.active and u.id != current_user.id %}
+          <form method="post" action="{{ url_for('admin.deactivate_user', user_id=u.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-danger"
+              onclick="return confirm('Deactivate {{ u.username }}?')">Deactivate</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty-state">No users found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div style="margin-top:1.25rem;font-size:12px;color:var(--color-muted)">
+  <strong>Staff</strong> can print codes, end active sessions, and view the dashboard and session list.<br>
+  <strong>Admin</strong> has full access including creating codes, managing stations, users, and settings.
+</div>
+{% endblock %}

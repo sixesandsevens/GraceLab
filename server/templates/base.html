@@ -3,28 +3,58 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}GraceLab{% endblock %} — Grace Marketplace</title>
+  <title>{% block title %}GraceLab{% endblock %} — GRACE Marketplace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/gracelab.css') }}">
 </head>
 <body>
 
 {% if current_user.is_authenticated %}
 <nav class="navbar">
-  <div class="navbar-brand">GraceLab</div>
+  <a href="{{ url_for('dashboard.index') }}" class="navbar-brand">
+    <span class="navbar-brand-name">GraceLab</span>
+    <span class="navbar-brand-sub">Computer Lab</span>
+  </a>
+
+  <div class="navbar-divider"></div>
+
   <ul class="navbar-links">
-    <li><a href="{{ url_for('dashboard.index') }}" {% if request.endpoint == 'dashboard.index' %}class="active"{% endif %}>Dashboard</a></li>
-    <li><a href="{{ url_for('sessions.new_session') }}" {% if request.endpoint == 'sessions.new_session' %}class="active"{% endif %}>New Code</a></li>
-    <li><a href="{{ url_for('sessions.batch') }}" {% if request.endpoint == 'sessions.batch' %}class="active"{% endif %}>Batch Print</a></li>
-    <li><a href="{{ url_for('sessions.list_sessions') }}" {% if request.endpoint and request.endpoint.startswith('sessions.') %}class="active"{% endif %}>Sessions</a></li>
-    <li><a href="{{ url_for('stations.list_stations') }}" {% if request.endpoint and request.endpoint.startswith('stations.') %}class="active"{% endif %}>Stations</a></li>
+    <li><a href="{{ url_for('dashboard.index') }}"
+        {% if request.endpoint == 'dashboard.index' %}class="active"{% endif %}>Dashboard</a></li>
+
+    <li><a href="{{ url_for('sessions.batch') }}"
+        {% if request.endpoint == 'sessions.batch' %}class="active"{% endif %}>Batch Print</a></li>
+
+    <li><a href="{{ url_for('sessions.list_sessions') }}"
+        {% if request.endpoint and request.endpoint.startswith('sessions.') and request.endpoint not in ('sessions.batch', 'sessions.new_session') %}class="active"{% endif %}>Sessions</a></li>
+
     {% if current_user.is_admin() %}
-    <li><a href="{{ url_for('admin.audit') }}" {% if request.endpoint and request.endpoint.startswith('admin.audit') %}class="active"{% endif %}>Audit</a></li>
-    <li><a href="{{ url_for('updates.updates_admin') }}" {% if request.endpoint and request.endpoint.startswith('updates.') %}class="active"{% endif %}>Updates</a></li>
-    <li><a href="{{ url_for('admin.settings') }}" {% if request.endpoint == 'admin.settings' %}class="active"{% endif %}>Settings</a></li>
+    <li><a href="{{ url_for('sessions.new_session') }}"
+        {% if request.endpoint == 'sessions.new_session' %}class="active"{% endif %}>New Code</a></li>
+
+    <li><a href="{{ url_for('stations.list_stations') }}"
+        {% if request.endpoint and request.endpoint.startswith('stations.') %}class="active"{% endif %}>Stations</a></li>
+
+    <li><a href="{{ url_for('admin.list_users') }}"
+        {% if request.endpoint and request.endpoint.startswith('admin.') and request.endpoint not in ('admin.settings', 'admin.audit') %}class="active"{% endif %}>Users</a></li>
+
+    <li><a href="{{ url_for('admin.audit') }}"
+        {% if request.endpoint == 'admin.audit' %}class="active"{% endif %}>Audit</a></li>
+
+    <li><a href="{{ url_for('updates.updates_admin') }}"
+        {% if request.endpoint and request.endpoint.startswith('updates.') %}class="active"{% endif %}>Updates</a></li>
+
+    <li><a href="{{ url_for('admin.settings') }}"
+        {% if request.endpoint == 'admin.settings' %}class="active"{% endif %}>Settings</a></li>
     {% endif %}
   </ul>
+
   <div class="navbar-user">
-    {{ current_user.username }}
+    <span class="navbar-user-name">{{ current_user.username }}</span>
+    <span class="navbar-role-badge {% if current_user.is_admin() %}admin{% endif %}">
+      {{ current_user.role }}
+    </span>
     <form method="post" action="{{ url_for('auth.logout') }}" style="display:inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn-link">Log out</button>

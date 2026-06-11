@@ -14,6 +14,17 @@ from audit import log_audit
 sessions_bp = Blueprint("sessions", __name__, url_prefix="/admin/sessions")
 
 
+def _admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_admin():
+            flash("Admin access required.", "danger")
+            return redirect(url_for("dashboard.index"))
+        return f(*args, **kwargs)
+    return decorated
+
+
 class NewSessionForm(FlaskForm):
     duration_minutes = IntegerField(
         "Duration (minutes)",
@@ -66,6 +77,7 @@ def list_sessions():
 
 @sessions_bp.route("/new", methods=["GET", "POST"])
 @login_required
+@_admin_required
 def new_session():
     form = NewSessionForm()
 
@@ -128,6 +140,7 @@ def ticket(session_id):
 
 @sessions_bp.route("/<int:session_id>/cancel", methods=["POST"])
 @login_required
+@_admin_required
 def cancel(session_id):
     session = db.get_or_404(Session, session_id)
     if session.status != "created":
@@ -150,6 +163,7 @@ def cancel(session_id):
 
 @sessions_bp.route("/<int:session_id>/extend", methods=["POST"])
 @login_required
+@_admin_required
 def extend(session_id):
     session = db.get_or_404(Session, session_id)
     if session.status != "active":

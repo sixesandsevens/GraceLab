@@ -1,10 +1,10 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
-from wtforms import StringField, IntegerField, SelectField, BooleanField, TextAreaField, SubmitField
-from wtforms.validators import DataRequired, Length, NumberRange, Optional
+from wtforms import StringField, IntegerField, SelectField, BooleanField, TextAreaField, PasswordField, SubmitField
+from wtforms.validators import DataRequired, Length, NumberRange, Optional, EqualTo
 from extensions import db
-from models import AuditLog, Setting
+from models import AuditLog, Setting, User
 from audit import log_audit
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -187,3 +187,99 @@ def settings():
         return redirect(url_for("admin.settings"))
 
     return render_template("settings.html", form=form)
+
+
+# ---------------------------------------------------------------------------
+# User management
+# ---------------------------------------------------------------------------
+
+class CreateUserForm(FlaskForm):
+    username = StringField("Username", validators=[DataRequired(), Length(3, 64)])
+    password = PasswordField("Password", validators=[DataRequired(), Length(8, 128)])
+    confirm  = PasswordField("Confirm Password", validators=[DataRequired(), EqualTo("password", message="Passwords must match.")])
+    role     = SelectField("Role", choices=[("staff", "Staff"), ("admin", "Admin")])
+    submit   = SubmitField("Create User")
+
+
+class EditUserForm(FlaskForm):
+    role     = SelectField("Role", choices=[("staff", "Staff"), ("admin", "Admin")])
+    active   = BooleanField("Active")
+    new_password = PasswordField("New Password (leave blank to keep current)", validators=[Optional(), Length(8, 128)])
+    submit   = SubmitField("Save Changes")
+
+
+@admin_bp.route("/users")
+@login_required
+@_admin_required
+def list_users():
+    users = User.query.order_by(User.username).all()
+    return render_template("users.html", users=users)
+
+
+@admin_bp.route("/users/new", methods=["GET", "POST"])
+@login_required
+@_admin_required
+def create_user():
+    form = CreateUserForm()
+    if form.validate_on_submit():
+        if User.query.filter_by(username=form.username.data.strip()).first():
+            flash("That username is already taken.", "danger")
+            return render_template("user_form.html", form=form, title="New User")
+        user = User(username=form.username.data.strip(), role=form.role.data)
+        user.set_password(form.password.data)
+        db.session.add(user)
+        db.session.flush()
+        log_audit("user_created", target_type="user", target_id=user.id,
+                  details={"username": user.username, "role": user.role})
+        db.session.commit()
+        flash(f"User '{user.username}' created.", "success")
+        return redirect(url_for("admin.list_users"))
+    return render_template("user_form.html", form=form, title="New User")
+
+
+@admin_bp.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
+@login_required
+@_admin_required
+def edit_user(user_id):
+    user = db.get_or_404(User, user_id)
+    form = EditUserForm()
+    if request.method == "GET":
+        form.role.data   = user.role
+        form.active.data = user.active
+    if form.validate_on_submit():
+        if user.id == current_user.id and form.role.data != "admin":
+            flash("You cannot remove your own admin role.", "danger")
+            return render_template("user_form.html", form=form, title=f"Edit — {user.username}", user=user)
+        changed = {}
+        if user.role != form.role.data:
+            changed["role"] = {"from": user.role, "to": form.role.data}
+            user.role = form.role.data
+        if user.active != form.active.data:
+            changed["active"] = {"from": user.active, "to": form.active.data}
+            user.active = form.active.data
+        if form.new_password.data:
+            user.set_password(form.new_password.data)
+            changed["password"] = "reset"
+        if changed:
+            log_audit("user_edited", target_type="user", target_id=user.id,
+                      details={"username": user.username, "changed": changed})
+        db.session.commit()
+        flash(f"User '{user.username}' updated.", "success")
+        return redirect(url_for("admin.list_users"))
+    return render_template("user_form.html", form=form, title=f"Edit — {user.username}", user=user)
+
+
+@admin_bp.route("/users/<int:user_id>/deactivate", methods=["POST"])
+@login_required
+@_admin_required
+def deactivate_user(user_id):
+    user = db.get_or_404(User, user_id)
+    if user.id == current_user.id:
+        flash("You cannot deactivate your own account.", "danger")
+        return redirect(url_for("admin.list_users"))
+    user.active = False
+    log_audit("user_deactivated", target_type="user", target_id=user.id,
+              details={"username": user.username})
+    db.session.commit()
+    flash(f"User '{user.username}' deactivated.", "info")
+    return redirect(url_for("admin.list_users"))

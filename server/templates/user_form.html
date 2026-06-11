@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>{{ title }}</h2>
+  <a href="{{ url_for('admin.list_users') }}" class="btn btn-secondary">Back to Users</a>
+</div>
+
+<div class="form-card">
+  <form method="post">
+    {{ form.hidden_tag() }}
+
+    {% if not user %}
+    {# Create user form #}
+    <div class="form-group">
+      {{ form.username.label }}
+      {{ form.username(class="form-control", autofocus=true, autocomplete="off") }}
+      {% if form.username.errors %}<div class="field-errors">{{ form.username.errors[0] }}</div>{% endif %}
+    </div>
+
+    <div class="form-group">
+      {{ form.password.label }}
+      {{ form.password(class="form-control", autocomplete="new-password") }}
+      {% if form.password.errors %}<div class="field-errors">{{ form.password.errors[0] }}</div>{% endif %}
+      <div class="form-hint">Minimum 8 characters.</div>
+    </div>
+
+    <div class="form-group">
+      {{ form.confirm.label }}
+      {{ form.confirm(class="form-control", autocomplete="new-password") }}
+      {% if form.confirm.errors %}<div class="field-errors">{{ form.confirm.errors[0] }}</div>{% endif %}
+    </div>
+
+    {% else %}
+    {# Edit user form #}
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" class="form-control" value="{{ user.username }}" disabled>
+    </div>
+
+    <div class="form-group">
+      {{ form.new_password.label }}
+      {{ form.new_password(class="form-control", autocomplete="new-password") }}
+      {% if form.new_password.errors %}<div class="field-errors">{{ form.new_password.errors[0] }}</div>{% endif %}
+      <div class="form-hint">Leave blank to keep the current password.</div>
+    </div>
+    {% endif %}
+
+    <div class="form-group">
+      {{ form.role.label }}
+      {{ form.role(class="form-control") }}
+      <div class="form-hint">
+        <strong>Staff</strong> — print codes, end sessions, view dashboard.<br>
+        <strong>Admin</strong> — full access including stations, users, and settings.
+      </div>
+    </div>
+
+    {% if user %}
+    <div class="form-group form-check">
+      {{ form.active() }}
+      {{ form.active.label }}
+    </div>
+    {% endif %}
+
+    <div style="margin-top:1.5rem">
+      {{ form.submit(class="btn btn-primary") }}
+      <a href="{{ url_for('admin.list_users') }}" class="btn btn-secondary" style="margin-left:0.5rem">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

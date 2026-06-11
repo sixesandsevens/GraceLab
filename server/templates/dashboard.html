@@ -4,11 +4,40 @@
 {% block content %}
 <div class="page-header">
   <h2>Dashboard</h2>
-  <a href="{{ url_for('sessions.new_session') }}" class="btn btn-primary">Generate Session Code</a>
+  <div class="page-header-actions">
+    <a href="{{ url_for('sessions.batch') }}" class="btn btn-accent">Batch Print</a>
+    {% if current_user.is_admin() %}
+    <a href="{{ url_for('sessions.new_session') }}" class="btn btn-primary">New Code</a>
+    {% endif %}
+  </div>
 </div>
 
-<section class="dashboard-section">
-  <h3>Active Sessions</h3>
+{# Stat row #}
+<div class="stat-row">
+  <div class="stat-card">
+    <div class="stat-label">Active Sessions</div>
+    <div class="stat-value">{{ active_sessions | length }}</div>
+  </div>
+  <div class="stat-card accent">
+    <div class="stat-label">Unused Codes</div>
+    <div class="stat-value">{{ pending_codes | length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Stations Online</div>
+    <div class="stat-value">{{ stations | selectattr('status', 'ne', 'offline') | list | length }}</div>
+  </div>
+  <div class="stat-card muted">
+    <div class="stat-label">Total Stations</div>
+    <div class="stat-value">{{ stations | length }}</div>
+  </div>
+</div>
+
+{# Active Sessions #}
+<div class="card">
+  <div class="card-header">
+    <h3>Active Sessions</h3>
+    <span class="card-header-count">{{ active_sessions | length }} active</span>
+  </div>
   {% if active_sessions %}
   <table class="table">
     <thead>
@@ -32,16 +61,18 @@
         <td>{{ s.expires_at.strftime('%H:%M') if s.expires_at else '—' }}</td>
         <td>{{ mins }}m {{ secs % 60 }}s</td>
         <td class="action-cell">
+          {% if current_user.is_admin() %}
           <form method="post" action="{{ url_for('sessions.extend', session_id=s.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="minutes" value="15">
-            <button type="submit" class="btn btn-sm btn-secondary">+15</button>
+            <button type="submit" class="btn btn-sm btn-secondary">+15m</button>
           </form>
           <form method="post" action="{{ url_for('sessions.extend', session_id=s.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="minutes" value="30">
-            <button type="submit" class="btn btn-sm btn-secondary">+30</button>
+            <button type="submit" class="btn btn-sm btn-secondary">+30m</button>
           </form>
+          {% endif %}
           <form method="post" action="{{ url_for('sessions.end', session_id=s.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-danger"
@@ -53,26 +84,30 @@
     </tbody>
   </table>
   {% else %}
-  <p class="empty-state">No active sessions.</p>
+  <p class="empty-state">No active sessions right now.</p>
   {% endif %}
-</section>
+</div>
 
-<section class="dashboard-section">
-  <h3>Lab Stations</h3>
+{# Lab Stations #}
+<div class="card" style="margin-top:1.5rem">
+  <div class="card-header">
+    <h3>Lab Stations</h3>
+    <span class="card-header-count">{{ stations | length }} registered</span>
+  </div>
   {% if stations %}
   <table class="table">
     <thead>
       <tr>
         <th>Station</th>
         <th>Status</th>
-        <th>Current Session</th>
+        <th>Session</th>
         <th>Last Seen</th>
       </tr>
     </thead>
     <tbody>
       {% for st in stations %}
       <tr>
-        <td>{{ st.display_name }}</td>
+        <td><strong>{{ st.display_name }}</strong></td>
         <td><span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span></td>
         <td>{{ st.current_session.code_display if st.current_session else '—' }}</td>
         <td>{{ st.last_seen.strftime('%H:%M:%S') if st.last_seen else 'never' }}</td>
@@ -81,12 +116,16 @@
     </tbody>
   </table>
   {% else %}
-  <p class="empty-state">No stations registered.</p>
+  <p class="empty-state">No stations registered yet.</p>
   {% endif %}
-</section>
+</div>
 
-<section class="dashboard-section">
-  <h3>Unused Codes</h3>
+{# Unused Codes — visible to all but cancel requires admin #}
+<div class="card" style="margin-top:1.5rem">
+  <div class="card-header">
+    <h3>Unused Codes</h3>
+    <span class="card-header-count">{{ pending_codes | length }} ready</span>
+  </div>
   {% if pending_codes %}
   <table class="table">
     <thead>
@@ -107,14 +146,16 @@
         <td>{{ s.duration_minutes }}m</td>
         <td>{{ s.created_at.strftime('%H:%M') }}</td>
         <td>{{ s.format_expiry() }}{% if expired %} <span class="status-badge status-expired">expired</span>{% endif %}</td>
-        <td>{{ s.created_by_user.username }}</td>
-        <td>
+        <td>{{ s.created_by_user.username if s.created_by_user else '—' }}</td>
+        <td class="action-cell">
           <a href="{{ url_for('sessions.ticket', session_id=s.id) }}" class="btn btn-sm btn-secondary">Reprint</a>
+          {% if current_user.is_admin() %}
           <form method="post" action="{{ url_for('sessions.cancel', session_id=s.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-danger"
               onclick="return confirm('Cancel code {{ s.code_display }}?')">Cancel</button>
           </form>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -123,10 +164,13 @@
   {% else %}
   <p class="empty-state">No unused codes.</p>
   {% endif %}
-</section>
+</div>
 
-<section class="dashboard-section">
-  <h3>Recent Sessions</h3>
+{# Recent Sessions #}
+<div class="card" style="margin-top:1.5rem">
+  <div class="card-header">
+    <h3>Recent Sessions</h3>
+  </div>
   {% if recent_sessions %}
   <table class="table">
     <thead>
@@ -143,15 +187,11 @@
       <tr>
         <td><a href="{{ url_for('sessions.detail', session_id=s.id) }}">{{ s.code_display }}</a></td>
         <td>
-          {% if s.status == 'used_for_extension' %}
-            <span class="status-badge status-expired">used for extension</span>
-          {% else %}
-            <span class="status-badge status-{{ s.status }}">{{ s.status.replace('_', ' ') }}</span>
-          {% endif %}
+          <span class="status-badge status-{{ s.status }}">{{ s.status.replace('_', ' ') }}</span>
         </td>
         <td>{{ s.duration_minutes }}m</td>
         <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-        <td>{{ s.created_by_user.username }}</td>
+        <td>{{ s.created_by_user.username if s.created_by_user else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -159,5 +199,5 @@
   {% else %}
   <p class="empty-state">No sessions yet.</p>
   {% endif %}
-</section>
+</div>
 {% endblock %}
