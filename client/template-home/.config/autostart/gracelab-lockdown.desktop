@@ -2,8 +2,8 @@
 Type=Application
 Name=GraceLab Lockdown
 Comment=Enforce kiosk restrictions at session start
-Exec=bash -c 'xfconf-query -c xfce4-desktop -p /desktop-menu/show -n -t bool -s false 2>/dev/null; xfconf-query -c xfce4-desktop -p /desktop-menu/show -t bool -s false 2>/dev/null; xfconf-query -c xfce4-desktop -p /windowlist-menu/show -n -t bool -s false 2>/dev/null; xfconf-query -c xfce4-desktop -p /windowlist-menu/show -t bool -s false 2>/dev/null; true'
+Exec=bash -c 'sleep 5; xfconf-query -c xfce4-desktop -p /desktop-menu/show -n -t bool -s false 2>/dev/null || true; xfconf-query -c xfce4-desktop -p /desktop-menu/show -t bool -s false 2>/dev/null || true; xfconf-query -c xfce4-desktop -p /windowlist-menu/show -n -t bool -s false 2>/dev/null || true; xfconf-query -c xfce4-desktop -p /windowlist-menu/show -t bool -s false 2>/dev/null || true; xfce4-desktop --reload 2>/dev/null || true'
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=2
+X-GNOME-Autostart-Delay=0
 Hidden=false
 NoDisplay=true
