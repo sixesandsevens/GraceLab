@@ -652,16 +652,29 @@ info "Firefox policies configured → /etc/firefox/policies/policies.json"
 
 step "Hardening guest session"
 
-# ── Thunar: empty custom actions (removes "Open Terminal Here") ───────────
+# ── Thunar: disable built-in terminal and clear custom actions ────────────
 GUEST_THUNAR_DIR="/home/${GUEST_USER}/.config/Thunar"
 mkdir -p "$GUEST_THUNAR_DIR"
+
+# thunarrc: MiscExecShell= (empty) removes "Open Terminal Here" from context menu
+cat > "${GUEST_THUNAR_DIR}/thunarrc" <<'EOF'
+[Configuration]
+LastShowHidden=FALSE
+MiscExecShell=
+MiscOpenNewWindowAsRoot=FALSE
+MiscShowDeleteAction=FALSE
+MiscSingleClick=FALSE
+EOF
+
+# uca.xml: empty custom actions (belt-and-suspenders)
 cat > "${GUEST_THUNAR_DIR}/uca.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <actions>
 </actions>
 EOF
+
 chown -R "${GUEST_USER}:${GUEST_USER}" "$GUEST_THUNAR_DIR"
-info "Thunar custom actions cleared (no Open Terminal Here)."
+info "Thunar terminal access disabled (thunarrc + uca.xml)."
 
 # ── Block terminal emulators for guestlab via wrapper scripts ─────────────
 # Each wrapper prints a message and exits so the binary is effectively
