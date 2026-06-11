@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.10"
+CLIENT_VERSION = "0.3.11"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -454,6 +454,15 @@ class GraceLabClient:
         if not result.get("ok"):
             err = result.get("error", "unknown")
             log.warning("Open start rejected: %s", err)
+            if err == "station_already_in_session":
+                # Server still has an active session from before the reboot
+                # (client hasn't heartbeated yet so recovery hasn't fired).
+                # Send a heartbeat now to get the session details and recover
+                # immediately rather than waiting up to 30s for the next tick.
+                log.info("Open start: station already in session — recovering via immediate heartbeat.")
+                self._show_recovering()
+                threading.Thread(target=self._recover_via_heartbeat, daemon=True).start()
+                return
             self.root.after(0, lambda: self._show_needs_attention(
                 "Could not start session. Please ask staff for help."
             ))
@@ -1408,6 +1417,24 @@ class GraceLabClient:
             self.root.after(0, lambda: self._show_needs_attention(
                 "Session resume failed. Please ask staff for help."
             ))
+
+    def _recover_via_heartbeat(self):
+        """Send an immediate heartbeat and recover any active session the server reports."""
+        try:
+            resp = self.api.heartbeat("available")
+        except APIError as e:
+            log.warning("Immediate recovery heartbeat failed: %s", e)
+            self.root.after(0, self._show_idle)
+            return
+        session_id = resp.get("active_session_id") if resp else None
+        expires_at = resp.get("active_expires_at") if resp else None
+        if session_id and expires_at:
+            warning_minutes = int(resp.get("active_warning_minutes") or 5)
+            open_mode = bool(resp.get("active_open_mode"))
+            self._recover_from_heartbeat(session_id, expires_at, warning_minutes, open_mode)
+        else:
+            # Nothing active on the server — just go idle
+            self.root.after(0, self._show_idle)
 
     def _reconnect_loop(self):
         if self._state != self.OFFLINE:
