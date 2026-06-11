@@ -10,10 +10,11 @@ dashboard_bp = Blueprint("dashboard", __name__)
 def expire_overdue_sessions():
     """
     Mark any active session whose expires_at is in the past as expired,
-    and release its station. Called before rendering any staff-facing view
-    so the dashboard never shows ghost sessions from crashed clients.
+    and release its station. Also expires created codes whose activation
+    window has closed. Called before rendering any staff-facing view.
     """
     now = datetime.now(timezone.utc)
+
     overdue = (
         Session.query
         .filter(Session.status == "active")
@@ -33,7 +34,19 @@ def expire_overdue_sessions():
         if s.station and s.station.status not in ("out_of_service", "needs_attention"):
             s.station.current_session_id = None
             s.station.status = "available"
-    if overdue:
+
+    stale_codes = (
+        Session.query
+        .filter(Session.status == "created")
+        .filter(Session.activation_expires_at < now)
+        .all()
+    )
+    for s in stale_codes:
+        s.status = "expired"
+        s.ended_at = now
+        s.end_reason = "activation_window_closed"
+
+    if overdue or stale_codes:
         db.session.commit()
 
 
