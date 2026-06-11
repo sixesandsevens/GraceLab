@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.9"
+CLIENT_VERSION = "0.3.10"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -238,8 +238,6 @@ class GraceLabClient:
         self._show_idle()
         self._schedule_heartbeat()
         self._check_orphaned_session()
-
-        # Fetch org name from server (non-blocking)
         threading.Thread(target=self._fetch_server_config, daemon=True).start()
 
     # ------------------------------------------------------------------
@@ -1317,6 +1315,8 @@ class GraceLabClient:
 
     def _heartbeat_tick(self):
         threading.Thread(target=self._send_heartbeat, daemon=True).start()
+        if self._state == self.IDLE:
+            threading.Thread(target=self._fetch_server_config, daemon=True).start()
 
     def _send_heartbeat(self):
         status = "in_use" if self._state in (
