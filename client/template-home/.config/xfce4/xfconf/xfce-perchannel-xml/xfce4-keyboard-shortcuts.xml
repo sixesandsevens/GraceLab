@@ -3,34 +3,54 @@
 <channel name="xfce4-keyboard-shortcuts" version="1.0">
   <property name="commands" type="empty">
     <property name="default" type="empty">
-      <property name="&lt;Primary&gt;&lt;Alt&gt;t" type="string" value="/bin/true"/>
+      <!-- Terminal launchers -->
+      <property name="&lt;Primary&gt;&lt;Alt&gt;t"      type="string" value="/bin/true"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;t2"     type="string" value="/bin/true"/>
+      <!-- Task manager / process escape -->
       <property name="&lt;Primary&gt;&lt;Shift&gt;Escape" type="string" value="/bin/true"/>
-      <property name="&lt;Primary&gt;&lt;Alt&gt;Delete" type="string" value="/bin/true"/>
-      <property name="&lt;Super&gt;l" type="string" value="/bin/true"/>
-      <property name="&lt;Primary&gt;&lt;Alt&gt;l" type="string" value="/bin/true"/>
-      <property name="XF86ScreenSaver" type="string" value="/bin/true"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Delete"  type="string" value="/bin/true"/>
+      <!-- Lock screen -->
+      <property name="&lt;Super&gt;l"                   type="string" value="/bin/true"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;l"      type="string" value="/bin/true"/>
+      <property name="XF86ScreenSaver"                  type="string" value="/bin/true"/>
+      <!-- Bare Windows key (Super_L / Super_R) — neutralise whiskermenu -->
+      <property name="Super_L"                          type="string" value="/bin/true"/>
+      <property name="Super_R"                          type="string" value="/bin/true"/>
+      <!-- Application menu shortcuts -->
+      <property name="&lt;Alt&gt;F1"                    type="string" value="/bin/true"/>
+      <property name="&lt;Alt&gt;F2"                    type="string" value="/bin/true"/>
+      <property name="&lt;Primary&gt;Escape"            type="string" value="/bin/true"/>
+      <!-- Common app-launch Super combos -->
+      <property name="&lt;Super&gt;e"                   type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;p"                   type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;r"                   type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;s"                   type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;t"                   type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;d"                   type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;f"                   type="string" value="/bin/true"/>
     </property>
   </property>
   <property name="xfwm4" type="empty">
     <property name="default" type="empty">
-      <property name="&lt;Control&gt;&lt;Alt&gt;Left" type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Right" type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Up" type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Down" type="string" value=""/>
-      <property name="&lt;Control&gt;F1" type="string" value=""/>
-      <property name="&lt;Control&gt;F2" type="string" value=""/>
-      <property name="&lt;Control&gt;F3" type="string" value=""/>
-      <property name="&lt;Control&gt;F4" type="string" value=""/>
-      <property name="&lt;Control&gt;F5" type="string" value=""/>
-      <property name="&lt;Control&gt;F6" type="string" value=""/>
-      <property name="&lt;Control&gt;F7" type="string" value=""/>
-      <property name="&lt;Control&gt;F8" type="string" value=""/>
-      <property name="&lt;Control&gt;F9" type="string" value=""/>
-      <property name="&lt;Control&gt;F10" type="string" value=""/>
-      <property name="&lt;Control&gt;F11" type="string" value=""/>
-      <property name="&lt;Control&gt;F12" type="string" value=""/>
+      <!-- Workspace switching — disabled to prevent jumping to empty workspaces -->
+      <property name="&lt;Control&gt;&lt;Alt&gt;Left"   type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Right"  type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Up"     type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Down"   type="string" value=""/>
+      <property name="&lt;Control&gt;F1"                type="string" value=""/>
+      <property name="&lt;Control&gt;F2"                type="string" value=""/>
+      <property name="&lt;Control&gt;F3"                type="string" value=""/>
+      <property name="&lt;Control&gt;F4"                type="string" value=""/>
+      <property name="&lt;Control&gt;F5"                type="string" value=""/>
+      <property name="&lt;Control&gt;F6"                type="string" value=""/>
+      <property name="&lt;Control&gt;F7"                type="string" value=""/>
+      <property name="&lt;Control&gt;F8"                type="string" value=""/>
+      <property name="&lt;Control&gt;F9"                type="string" value=""/>
+      <property name="&lt;Control&gt;F10"               type="string" value=""/>
+      <property name="&lt;Control&gt;F11"               type="string" value=""/>
+      <property name="&lt;Control&gt;F12"               type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value=""/>
-      <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up" type="string" value=""/>
+      <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up"  type="string" value=""/>
     </property>
   </property>
 </channel>

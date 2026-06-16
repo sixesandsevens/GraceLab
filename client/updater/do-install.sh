@@ -137,4 +137,101 @@ if id "$GRACELAB_USER" &>/dev/null; then
     chown "${GRACELAB_USER}:${GRACELAB_USER}" "$STATE_DIR"
 fi
 
+# ---------------------------------------------------------------------------
+# Re-apply gracelab operator lockdown on every update
+# (keyboard shortcuts, session-save disable, autostart watchdog)
+# ---------------------------------------------------------------------------
+
+GRACELAB_HOME="/home/${GRACELAB_USER}"
+GRACELAB_XFCONF="${GRACELAB_HOME}/.config/xfce4/xfconf/xfce-perchannel-xml"
+
+if id "$GRACELAB_USER" &>/dev/null && [[ -d "$GRACELAB_HOME" ]]; then
+    mkdir -p "$GRACELAB_XFCONF"
+
+    cat > "${GRACELAB_XFCONF}/xfce4-keyboard-shortcuts.xml" <<'XMLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-keyboard-shortcuts" version="1.0">
+  <property name="commands" type="empty">
+    <property name="default" type="empty">
+      <property name="&lt;Primary&gt;&lt;Alt&gt;t"       type="string" value="/bin/true"/>
+      <property name="&lt;Primary&gt;&lt;Shift&gt;Escape" type="string" value="/bin/true"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Delete"   type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;l"                     type="string" value="/bin/true"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;l"        type="string" value="/bin/true"/>
+      <property name="XF86ScreenSaver"                    type="string" value="/bin/true"/>
+      <property name="Super_L"                            type="string" value="/bin/true"/>
+      <property name="Super_R"                            type="string" value="/bin/true"/>
+      <property name="&lt;Alt&gt;F1"                      type="string" value="/bin/true"/>
+      <property name="&lt;Alt&gt;F2"                      type="string" value="/bin/true"/>
+      <property name="&lt;Primary&gt;Escape"              type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;e"                     type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;p"                     type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;r"                     type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;s"                     type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;t"                     type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;d"                     type="string" value="/bin/true"/>
+      <property name="&lt;Super&gt;f"                     type="string" value="/bin/true"/>
+    </property>
+  </property>
+  <property name="xfwm4" type="empty">
+    <property name="default" type="empty">
+      <property name="&lt;Control&gt;&lt;Alt&gt;Left"    type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Right"   type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Up"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Down"    type="string" value=""/>
+      <property name="&lt;Control&gt;F1"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F2"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F3"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F4"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F5"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F6"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F7"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F8"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F9"                 type="string" value=""/>
+      <property name="&lt;Control&gt;F10"                type="string" value=""/>
+      <property name="&lt;Control&gt;F11"                type="string" value=""/>
+      <property name="&lt;Control&gt;F12"                type="string" value=""/>
+      <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value=""/>
+      <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up"   type="string" value=""/>
+    </property>
+  </property>
+</channel>
+XMLEOF
+
+    cat > "${GRACELAB_XFCONF}/xfce4-session.xml" <<'XMLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-session" version="1.0">
+  <property name="general" type="empty">
+    <property name="SaveOnExit" type="bool" value="false"/>
+    <property name="AutoSave"   type="bool" value="false"/>
+  </property>
+</channel>
+XMLEOF
+
+    # Clear any previously-saved XFCE session
+    rm -rf "${GRACELAB_HOME}/.cache/sessions"
+    mkdir -p "${GRACELAB_HOME}/.cache"
+
+    # Update the lockdown-operator autostart to point to the new current link
+    GRACELAB_AUTOSTART="${GRACELAB_HOME}/.config/autostart"
+    mkdir -p "$GRACELAB_AUTOSTART"
+    cat > "${GRACELAB_AUTOSTART}/gracelab-lockdown-operator.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=GraceLab Operator Lockdown
+Comment=Enforce kiosk restrictions for the gracelab operator account
+Exec=${CURRENT_LINK}/scripts/lockdown-operator.sh
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=2
+Hidden=false
+NoDisplay=true
+EOF
+
+    chown -R "${GRACELAB_USER}:${GRACELAB_USER}" \
+        "${GRACELAB_HOME}/.config" \
+        "${GRACELAB_HOME}/.cache"
+
+    echo "gracelab operator lockdown updated."
+fi
+
 echo "Installed gracelab-client ${VERSION} → ${RELEASE_DIR}"
