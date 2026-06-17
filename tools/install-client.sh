@@ -668,28 +668,113 @@ info "DontZap configured → ${XORG_CONF_DIR}/10-serverflags.conf"
 
 step "Configuring Firefox policies"
 
-mkdir -p /etc/firefox/policies
+# Build the policy JSON once and write it to every location Firefox checks.
+# On Linux Mint, the browser reads the distribution/ directory inside its own
+# installation tree first; /etc/firefox/policies is a fallback. We write both
+# so the policy applies regardless of which Firefox package variant is installed.
 
-cat > /etc/firefox/policies/policies.json <<'EOF'
+_FIREFOX_POLICY_JSON='
 {
   "policies": {
     "Homepage": {
       "URL": "https://guestdesk.info",
       "Locked": true,
-      "StartPage": "homepage-locked"
+      "StartPage": "homepage"
     },
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "DontCheckDefaultBrowser": true,
+    "DisableProfileImport": true,
+    "DisableFirefoxAccounts": true,
+    "DisableFirefoxStudies": true,
+    "DisableTelemetry": true,
+    "DisablePocket": true,
+    "NoDefaultBookmarks": true,
     "BlockAboutAddons": true,
     "ExtensionSettings": {
       "*": {
         "installation_mode": "blocked",
         "blocked_install_message": "Extensions cannot be installed on this device."
       }
+    },
+    "FirefoxHome": {
+      "Search": false,
+      "TopSites": false,
+      "SponsoredTopSites": false,
+      "Highlights": false,
+      "Pocket": false,
+      "SponsoredPocket": false,
+      "Snippets": false,
+      "Locked": true
+    },
+    "UserMessaging": {
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "UrlbarInterventions": false,
+      "SkipOnboarding": true,
+      "MoreFromMozilla": false,
+      "Locked": true
+    },
+    "Preferences": {
+      "browser.startup.homepage": {
+        "Value": "https://guestdesk.info",
+        "Status": "locked"
+      },
+      "browser.aboutwelcome.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "browser.startup.homepage_override.mstone": {
+        "Value": "ignore",
+        "Status": "locked"
+      },
+      "browser.shell.checkDefaultBrowser": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "browser.shell.didSkipDefaultBrowserCheckOnFirstRun": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "datareporting.policy.dataSubmissionPolicyBypassNotification": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "browser.sessionstore.resume_from_crash": {
+        "Value": false,
+        "Status": "locked"
+      }
     }
   }
 }
-EOF
+'
 
-info "Firefox policies configured → /etc/firefox/policies/policies.json"
+# Validate JSON before writing anywhere
+echo "$_FIREFOX_POLICY_JSON" | python3 -m json.tool >/dev/null || \
+    die "Firefox policies.json failed JSON validation — check syntax."
+
+# /etc/firefox/policies (standard Linux path)
+mkdir -p /etc/firefox/policies
+echo "$_FIREFOX_POLICY_JSON" > /etc/firefox/policies/policies.json
+chmod 644 /etc/firefox/policies/policies.json
+info "Firefox policy written → /etc/firefox/policies/policies.json"
+
+# Firefox distribution/ directory (Mint reads this first; path varies by install)
+for _FF_CANDIDATE in \
+    /usr/lib/firefox \
+    /usr/lib/firefox-esr \
+    /usr/lib/x86_64-linux-gnu/firefox \
+    /opt/firefox \
+    "$(dirname "$(readlink -f "$(command -v firefox 2>/dev/null || true)")" 2>/dev/null || true)"
+do
+    [[ -d "$_FF_CANDIDATE" ]] || continue
+    mkdir -p "${_FF_CANDIDATE}/distribution"
+    echo "$_FIREFOX_POLICY_JSON" > "${_FF_CANDIDATE}/distribution/policies.json"
+    chmod 644 "${_FF_CANDIDATE}/distribution/policies.json"
+    info "Firefox policy written → ${_FF_CANDIDATE}/distribution/policies.json"
+done
+
+unset _FIREFOX_POLICY_JSON _FF_CANDIDATE
 
 # ---------------------------------------------------------------------------
 # Guest session hardening
@@ -760,6 +845,70 @@ chown -R "${GUEST_USER}:${GUEST_USER}" "$GUEST_LOCAL_BIN" "$GUEST_BASHRC" 2>/dev
 info "Terminal emulators blocked for ${GUEST_USER}."
 
 info "Guest session hardening complete."
+
+# ---------------------------------------------------------------------------
+# Suppress Linux Mint Update Manager system-wide
+# ---------------------------------------------------------------------------
+
+step "Suppressing Mint Update Manager"
+
+# Disable apt periodic background checks — these are what wake mintupdate.
+cat > /etc/apt/apt.conf.d/99gracelab-no-updates <<'EOF'
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::AutocleanInterval "0";
+APT::Periodic::Unattended-Upgrade "0";
+EOF
+info "apt periodic checks disabled → /etc/apt/apt.conf.d/99gracelab-no-updates"
+
+# Mask the mintupdate systemd user service so it never auto-starts.
+# (mintupdate ships a user-level .service on newer Mint releases)
+systemctl --global disable mintupdate.service 2>/dev/null || true
+systemctl --global mask   mintupdate.service 2>/dev/null || true
+
+# Disable the system-wide XDG autostart entries for all Mint update notifiers.
+# We do this at the system level (/etc/xdg/autostart) so it applies to both
+# gracelab and guestlab without needing per-user overrides.
+for entry in \
+    mintupdate.desktop \
+    mintupdate-launcher.desktop \
+    com.linuxmint.updates.desktop \
+    update-notifier.desktop \
+    update-manager.desktop \
+    org.gnome.Software.desktop
+do
+    SYSTEM_FILE="/etc/xdg/autostart/${entry}"
+    if [[ -f "$SYSTEM_FILE" ]]; then
+        # Append X-GNOME-Autostart-enabled=false rather than deleting the file
+        # so package upgrades don't silently recreate it unchecked.
+        if ! grep -q "X-GNOME-Autostart-enabled=false" "$SYSTEM_FILE"; then
+            echo "X-GNOME-Autostart-enabled=false" >> "$SYSTEM_FILE"
+            info "Disabled system autostart: ${entry}"
+        else
+            info "Already disabled: ${entry}"
+        fi
+    fi
+done
+
+# Also place user-level Hidden=true overrides for gracelab so the above can't
+# be undone by a package reinstall restoring the system file.
+for entry in \
+    mintupdate.desktop \
+    mintupdate-launcher.desktop \
+    com.linuxmint.updates.desktop \
+    update-notifier.desktop \
+    update-manager.desktop \
+    org.gnome.Software.desktop
+do
+    cat > "/home/${GRACELAB_USER}/.config/autostart/${entry}" <<'DEOF'
+[Desktop Entry]
+Hidden=true
+DEOF
+done
+chown -R "${GRACELAB_USER}:${GRACELAB_USER}" "/home/${GRACELAB_USER}/.config/autostart"
+info "User-level autostart overrides written for ${GRACELAB_USER}."
+
+info "Mint Update Manager suppressed."
 
 # ---------------------------------------------------------------------------
 # Summary
