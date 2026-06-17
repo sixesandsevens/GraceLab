@@ -67,18 +67,16 @@ _noop "<Primary><Alt>l"
 _noop "XF86ScreenSaver"
 
 # ── Panel ──────────────────────────────────────────────────────────────────
-pkill -f xfce-superkey   2>/dev/null || true
-xfce4-panel --quit       2>/dev/null || true
-pkill -x xfce4-panel     2>/dev/null || true
+# Use pkill only — xfce4-panel --quit goes via D-Bus and pops an error dialog
+# when the panel isn't running, which is exactly the state we want.
+pkill -f xfce-superkey 2>/dev/null || true
+pkill -x xfce4-panel   2>/dev/null || true
 
 # ── Watchdog loop ──────────────────────────────────────────────────────────
 # Re-kill any panel or menu helper that respawns (e.g. XFCE session manager
 # restarting crashed components).
 while true; do
     sleep 3
-    if pgrep -x xfce4-panel >/dev/null 2>&1; then
-        xfce4-panel --quit   2>/dev/null || true
-        pkill -x xfce4-panel 2>/dev/null || true
-    fi
+    pkill -x xfce4-panel   2>/dev/null || true
     pkill -f xfce-superkey 2>/dev/null || true
 done
