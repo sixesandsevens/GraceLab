@@ -520,6 +520,14 @@ cat > "${GRACELAB_XFCONF_DIR}/xfce4-keyboard-shortcuts.xml" <<'XMLEOF'
       <property name="&lt;Control&gt;F12"                type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up"   type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;d"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;f"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Escape" type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Tab"    type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;n"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;s"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Insert" type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Delete" type="string" value=""/>
     </property>
   </property>
 </channel>

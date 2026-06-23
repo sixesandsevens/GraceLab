@@ -51,6 +51,16 @@
       <property name="&lt;Control&gt;F12"               type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up"  type="string" value=""/>
+      <!-- Show desktop / fullscreen toggles — found exposing right-click desktop
+           and Thunar access through Ctrl+Alt+D / Ctrl+Alt+F (June 2026) -->
+      <property name="&lt;Control&gt;&lt;Alt&gt;d"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;f"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Escape" type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Tab"    type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;n"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;s"      type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Insert" type="string" value=""/>
+      <property name="&lt;Control&gt;&lt;Alt&gt;Delete" type="string" value=""/>
     </property>
   </property>
 </channel>

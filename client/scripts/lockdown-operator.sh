@@ -66,6 +66,25 @@ _noop "<Super>l"
 _noop "<Primary><Alt>l"
 _noop "XF86ScreenSaver"
 
+# ── xfwm4 window-manager shortcuts ──────────────────────────────────────────
+# Show-desktop / fullscreen toggles found exposing right-click desktop and
+# Thunar access through Ctrl+Alt+D / Ctrl+Alt+F (June 2026).
+_blank_wm() {
+    xfconf-query -c xfce4-keyboard-shortcuts \
+        -p "/xfwm4/custom/${1}" -n -t string -s '' 2>/dev/null || true
+    xfconf-query -c xfce4-keyboard-shortcuts \
+        -p "/xfwm4/default/${1}" -n -t string -s '' 2>/dev/null || true
+}
+
+_blank_wm "<Control><Alt>d"
+_blank_wm "<Control><Alt>f"
+_blank_wm "<Control><Alt>Escape"
+_blank_wm "<Control><Alt>Tab"
+_blank_wm "<Control><Alt>n"
+_blank_wm "<Control><Alt>s"
+_blank_wm "<Control><Alt>Insert"
+_blank_wm "<Control><Alt>Delete"
+
 # ── Panel ──────────────────────────────────────────────────────────────────
 # Use pkill only — xfce4-panel --quit goes via D-Bus and pops an error dialog
 # when the panel isn't running, which is exactly the state we want.
