@@ -76,21 +76,34 @@ _noop "XF86ScreenSaver"
 # properties instead of overriding the live ones. Verified against the actual
 # `xfconf-query -lv` dump from a station: show_desktop_key is bound under
 # /xfwm4/.../<Primary><Alt>d.
-_blank_wm() {
+#
+# Setting these to an empty string did NOT disable show_desktop_key in
+# practice (confirmed on station after 0.3.18) — xfwm4 keeps acting on the
+# binding even with an empty value. Resetting (-r) falls back to xfwm4's
+# compiled-in default, which re-enables the same action. The only reliable
+# fix is to rebind the key combo to "cancel_key" — xfwm4's escape-current-
+# operation action. It is a real, valid xfwm4 action so xfconf accepts it,
+# and it is a no-op whenever there is no drag/resize/move in progress (i.e.
+# always, on the kiosk screen).
+_neutralize_wm() {
     xfconf-query -c xfce4-keyboard-shortcuts \
-        -p "/xfwm4/custom/${1}" -n -t string -s '' 2>/dev/null || true
+        -p "/xfwm4/custom/${1}" -n -t string -s 'cancel_key' 2>/dev/null || \
     xfconf-query -c xfce4-keyboard-shortcuts \
-        -p "/xfwm4/default/${1}" -n -t string -s '' 2>/dev/null || true
+        -p "/xfwm4/custom/${1}" -t string -s 'cancel_key' 2>/dev/null || true
+    xfconf-query -c xfce4-keyboard-shortcuts \
+        -p "/xfwm4/default/${1}" -n -t string -s 'cancel_key' 2>/dev/null || \
+    xfconf-query -c xfce4-keyboard-shortcuts \
+        -p "/xfwm4/default/${1}" -t string -s 'cancel_key' 2>/dev/null || true
 }
 
-_blank_wm "<Primary><Alt>d"
-_blank_wm "<Primary><Alt>Escape"
-_blank_wm "<Primary><Alt>Tab"
-_blank_wm "<Primary><Alt>n"
-_blank_wm "<Primary><Alt>s"
-_blank_wm "<Primary><Alt>Insert"
-_blank_wm "<Alt>F11"
-_blank_wm "<Alt>space"
+_neutralize_wm "<Primary><Alt>d"
+_neutralize_wm "<Primary><Alt>Escape"
+_neutralize_wm "<Primary><Alt>Tab"
+_neutralize_wm "<Primary><Alt>n"
+_neutralize_wm "<Primary><Alt>s"
+_neutralize_wm "<Primary><Alt>Insert"
+_neutralize_wm "<Alt>F11"
+_neutralize_wm "<Alt>space"
 
 # ── Panel ──────────────────────────────────────────────────────────────────
 # Use pkill only — xfce4-panel --quit goes via D-Bus and pops an error dialog

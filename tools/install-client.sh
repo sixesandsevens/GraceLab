@@ -525,15 +525,18 @@ cat > "${GRACELAB_XFCONF_DIR}/xfce4-keyboard-shortcuts.xml" <<'XMLEOF'
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up"   type="string" value=""/>
       <!-- Confirmed live binding via xfconf-query -lv on station:
-           /xfwm4/default/<Primary><Alt>d = show_desktop_key -->
-      <property name="&lt;Primary&gt;&lt;Alt&gt;d"      type="string" value=""/>
-      <property name="&lt;Primary&gt;&lt;Alt&gt;Escape" type="string" value=""/>
-      <property name="&lt;Primary&gt;&lt;Alt&gt;Tab"    type="string" value=""/>
-      <property name="&lt;Primary&gt;&lt;Alt&gt;n"      type="string" value=""/>
-      <property name="&lt;Primary&gt;&lt;Alt&gt;s"      type="string" value=""/>
-      <property name="&lt;Primary&gt;&lt;Alt&gt;Insert" type="string" value=""/>
-      <property name="&lt;Alt&gt;F11"                  type="string" value=""/>
-      <property name="&lt;Alt&gt;space"                type="string" value=""/>
+           /xfwm4/default/<Primary><Alt>d = show_desktop_key.
+           An empty value does NOT unbind an xfwm4 action key — xfwm4 keeps
+           acting on it. Remapping to "cancel_key" (a no-op in this kiosk
+           session) is the only value that reliably neutralises these. -->
+      <property name="&lt;Primary&gt;&lt;Alt&gt;d"      type="string" value="cancel_key"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Escape" type="string" value="cancel_key"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Tab"    type="string" value="cancel_key"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;n"      type="string" value="cancel_key"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;s"      type="string" value="cancel_key"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Insert" type="string" value="cancel_key"/>
+      <property name="&lt;Alt&gt;F11"                  type="string" value="cancel_key"/>
+      <property name="&lt;Alt&gt;space"                type="string" value="cancel_key"/>
     </property>
   </property>
 </channel>
