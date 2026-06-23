@@ -55,6 +55,8 @@ _noop "<Super>p"
 _noop "<Super>t"
 _noop "<Super>d"
 _noop "<Super>f"
+_noop "<Primary><Alt>f"
+_noop "<Alt>F3"
 
 # Terminal shortcuts
 _noop "<Primary><Alt>t"
@@ -69,6 +71,11 @@ _noop "XF86ScreenSaver"
 # ── xfwm4 window-manager shortcuts ──────────────────────────────────────────
 # Show-desktop / fullscreen toggles found exposing right-click desktop and
 # Thunar access through Ctrl+Alt+D / Ctrl+Alt+F (June 2026).
+# NOTE: xfconf stores the Ctrl modifier as "<Primary>", not "<Control>" — an
+# earlier fix used the wrong modifier name and silently created unused dead
+# properties instead of overriding the live ones. Verified against the actual
+# `xfconf-query -lv` dump from a station: show_desktop_key is bound under
+# /xfwm4/.../<Primary><Alt>d.
 _blank_wm() {
     xfconf-query -c xfce4-keyboard-shortcuts \
         -p "/xfwm4/custom/${1}" -n -t string -s '' 2>/dev/null || true
@@ -76,14 +83,14 @@ _blank_wm() {
         -p "/xfwm4/default/${1}" -n -t string -s '' 2>/dev/null || true
 }
 
-_blank_wm "<Control><Alt>d"
-_blank_wm "<Control><Alt>f"
-_blank_wm "<Control><Alt>Escape"
-_blank_wm "<Control><Alt>Tab"
-_blank_wm "<Control><Alt>n"
-_blank_wm "<Control><Alt>s"
-_blank_wm "<Control><Alt>Insert"
-_blank_wm "<Control><Alt>Delete"
+_blank_wm "<Primary><Alt>d"
+_blank_wm "<Primary><Alt>Escape"
+_blank_wm "<Primary><Alt>Tab"
+_blank_wm "<Primary><Alt>n"
+_blank_wm "<Primary><Alt>s"
+_blank_wm "<Primary><Alt>Insert"
+_blank_wm "<Alt>F11"
+_blank_wm "<Alt>space"
 
 # ── Panel ──────────────────────────────────────────────────────────────────
 # Use pkill only — xfce4-panel --quit goes via D-Bus and pops an error dialog

@@ -163,6 +163,7 @@ if id "$GRACELAB_USER" &>/dev/null && [[ -d "$GRACELAB_HOME" ]]; then
       <property name="Super_R"                            type="string" value="/bin/true"/>
       <property name="&lt;Alt&gt;F1"                      type="string" value="/bin/true"/>
       <property name="&lt;Alt&gt;F2"                      type="string" value="/bin/true"/>
+      <property name="&lt;Alt&gt;F3"                      type="string" value="/bin/true"/>
       <property name="&lt;Primary&gt;Escape"              type="string" value="/bin/true"/>
       <property name="&lt;Super&gt;e"                     type="string" value="/bin/true"/>
       <property name="&lt;Super&gt;p"                     type="string" value="/bin/true"/>
@@ -171,36 +172,39 @@ if id "$GRACELAB_USER" &>/dev/null && [[ -d "$GRACELAB_HOME" ]]; then
       <property name="&lt;Super&gt;t"                     type="string" value="/bin/true"/>
       <property name="&lt;Super&gt;d"                     type="string" value="/bin/true"/>
       <property name="&lt;Super&gt;f"                     type="string" value="/bin/true"/>
+      <!-- xfconf stores the Ctrl modifier as <Primary>, not <Control>. -->
+      <property name="&lt;Primary&gt;&lt;Alt&gt;f"        type="string" value="/bin/true"/>
     </property>
   </property>
   <property name="xfwm4" type="empty">
     <property name="default" type="empty">
-      <property name="&lt;Control&gt;&lt;Alt&gt;Left"    type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Right"   type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Up"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Down"    type="string" value=""/>
-      <property name="&lt;Control&gt;F1"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F2"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F3"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F4"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F5"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F6"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F7"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F8"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F9"                 type="string" value=""/>
-      <property name="&lt;Control&gt;F10"                type="string" value=""/>
-      <property name="&lt;Control&gt;F11"                type="string" value=""/>
-      <property name="&lt;Control&gt;F12"                type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Left"    type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Right"   type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Up"      type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Down"    type="string" value=""/>
+      <property name="&lt;Primary&gt;F1"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F2"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F3"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F4"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F5"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F6"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F7"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F8"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F9"                 type="string" value=""/>
+      <property name="&lt;Primary&gt;F10"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F11"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F12"                type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up"   type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;d"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;f"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Escape" type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Tab"    type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;n"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;s"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Insert" type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Delete" type="string" value=""/>
+      <!-- Confirmed live binding: /xfwm4/default/<Primary><Alt>d = show_desktop_key -->
+      <property name="&lt;Primary&gt;&lt;Alt&gt;d"      type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Escape" type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Tab"    type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;n"      type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;s"      type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Insert" type="string" value=""/>
+      <property name="&lt;Alt&gt;F11"                  type="string" value=""/>
+      <property name="&lt;Alt&gt;space"                type="string" value=""/>
     </property>
   </property>
 </channel>

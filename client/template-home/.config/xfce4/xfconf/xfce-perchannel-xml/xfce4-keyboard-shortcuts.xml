@@ -16,9 +16,10 @@
       <!-- Bare Windows key (Super_L / Super_R) — neutralise whiskermenu -->
       <property name="Super_L"                          type="string" value="/bin/true"/>
       <property name="Super_R"                          type="string" value="/bin/true"/>
-      <!-- Application menu shortcuts -->
+      <!-- Application menu / finder shortcuts -->
       <property name="&lt;Alt&gt;F1"                    type="string" value="/bin/true"/>
       <property name="&lt;Alt&gt;F2"                    type="string" value="/bin/true"/>
+      <property name="&lt;Alt&gt;F3"                    type="string" value="/bin/true"/>
       <property name="&lt;Primary&gt;Escape"            type="string" value="/bin/true"/>
       <!-- Common app-launch Super combos -->
       <property name="&lt;Super&gt;e"                   type="string" value="/bin/true"/>
@@ -28,39 +29,45 @@
       <property name="&lt;Super&gt;t"                   type="string" value="/bin/true"/>
       <property name="&lt;Super&gt;d"                   type="string" value="/bin/true"/>
       <property name="&lt;Super&gt;f"                   type="string" value="/bin/true"/>
+      <!-- File manager via Ctrl+Alt+F — xfconf stores Ctrl as <Primary>, not
+           <Control>; an earlier fix used the wrong modifier name and never
+           actually took effect (confirmed via xfconf-query -lv on station). -->
+      <property name="&lt;Primary&gt;&lt;Alt&gt;f"      type="string" value="/bin/true"/>
     </property>
   </property>
   <property name="xfwm4" type="empty">
     <property name="default" type="empty">
-      <!-- Workspace switching — disabled to prevent jumping to empty workspaces -->
-      <property name="&lt;Control&gt;&lt;Alt&gt;Left"   type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Right"  type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Up"     type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Down"   type="string" value=""/>
-      <property name="&lt;Control&gt;F1"                type="string" value=""/>
-      <property name="&lt;Control&gt;F2"                type="string" value=""/>
-      <property name="&lt;Control&gt;F3"                type="string" value=""/>
-      <property name="&lt;Control&gt;F4"                type="string" value=""/>
-      <property name="&lt;Control&gt;F5"                type="string" value=""/>
-      <property name="&lt;Control&gt;F6"                type="string" value=""/>
-      <property name="&lt;Control&gt;F7"                type="string" value=""/>
-      <property name="&lt;Control&gt;F8"                type="string" value=""/>
-      <property name="&lt;Control&gt;F9"                type="string" value=""/>
-      <property name="&lt;Control&gt;F10"               type="string" value=""/>
-      <property name="&lt;Control&gt;F11"               type="string" value=""/>
-      <property name="&lt;Control&gt;F12"               type="string" value=""/>
+      <!-- Workspace switching — disabled to prevent jumping to empty workspaces.
+           xfconf uses <Primary> for the Ctrl modifier, not <Control>. -->
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Left"   type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Right"  type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Up"     type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Down"   type="string" value=""/>
+      <property name="&lt;Primary&gt;F1"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F2"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F3"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F4"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F5"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F6"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F7"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F8"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F9"                type="string" value=""/>
+      <property name="&lt;Primary&gt;F10"               type="string" value=""/>
+      <property name="&lt;Primary&gt;F11"               type="string" value=""/>
+      <property name="&lt;Primary&gt;F12"               type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value=""/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up"  type="string" value=""/>
-      <!-- Show desktop / fullscreen toggles — found exposing right-click desktop
-           and Thunar access through Ctrl+Alt+D / Ctrl+Alt+F (June 2026) -->
-      <property name="&lt;Control&gt;&lt;Alt&gt;d"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;f"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Escape" type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Tab"    type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;n"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;s"      type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Insert" type="string" value=""/>
-      <property name="&lt;Control&gt;&lt;Alt&gt;Delete" type="string" value=""/>
+      <!-- Show desktop / fullscreen / window-menu toggles — found exposing
+           right-click desktop access through Ctrl+Alt+D (June 2026).
+           Confirmed live binding: /xfwm4/default/<Primary><Alt>d = show_desktop_key -->
+      <property name="&lt;Primary&gt;&lt;Alt&gt;d"      type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Escape" type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Tab"    type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;n"      type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;s"      type="string" value=""/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Insert" type="string" value=""/>
+      <property name="&lt;Alt&gt;F11"                  type="string" value=""/>
+      <property name="&lt;Alt&gt;space"                type="string" value=""/>
     </property>
   </property>
 </channel>
