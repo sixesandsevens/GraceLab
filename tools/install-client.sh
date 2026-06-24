@@ -593,6 +593,19 @@ cat > "${GRACELAB_XFCONF_DIR}/xfce4-panel.xml" <<'XMLEOF'
 </channel>
 XMLEOF
 
+# Collapse to a single workspace. Mint ships 4 by default; Ctrl+F2/F3/F4 and
+# other workspace-switch shortcuts jump to an empty workspace, which is just
+# as much a desktop-access escape as show_desktop_key (confirmed on station,
+# June 2026). One workspace makes every such shortcut a permanent no-op.
+cat > "${GRACELAB_XFCONF_DIR}/xfwm4.xml" <<'XMLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="workspace_count" type="int" value="1"/>
+  </property>
+</channel>
+XMLEOF
+
 # Disable XFCE session saving so a crashed/regenerated panel can never be
 # restored on the next login.
 cat > "${GRACELAB_XFCONF_DIR}/xfce4-session.xml" <<'XMLEOF'

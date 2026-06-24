@@ -223,6 +223,18 @@ XMLEOF
 </channel>
 XMLEOF
 
+    # Collapse to a single workspace — see lockdown-operator.sh comment for
+    # why empty/blanked workspace-switch shortcuts aren't sufficient on their
+    # own (confirmed on station, June 2026).
+    cat > "${GRACELAB_XFCONF}/xfwm4.xml" <<'XMLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="workspace_count" type="int" value="1"/>
+  </property>
+</channel>
+XMLEOF
+
     # Clear any previously-saved XFCE session
     rm -rf "${GRACELAB_HOME}/.cache/sessions"
     mkdir -p "${GRACELAB_HOME}/.cache"

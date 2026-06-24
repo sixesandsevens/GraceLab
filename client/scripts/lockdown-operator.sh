@@ -32,6 +32,16 @@ for prop in /desktop-menu/show /windowlist-menu/show; do
     xfconf-query -c xfce4-desktop -p "$prop"    -t bool -s false 2>/dev/null || true
 done
 
+# ── Workspaces ─────────────────────────────────────────────────────────────
+# Mint ships 4 workspaces by default. Ctrl+F2/F3/F4 and other workspace-
+# switch keys jump to an empty workspace, which looks just like "the
+# desktop" and is just as much an escape as show_desktop_key — confirmed on
+# station (June 2026). Collapsing to a single workspace makes every
+# workspace-switch shortcut a permanent no-op regardless of which exact key
+# combination Mint or XFCE binds it to, without having to enumerate them all.
+xfconf-query -c xfwm4 -p /general/workspace_count -t int -s 1 2>/dev/null || \
+xfconf-query -c xfwm4 -p /general/workspace_count -n -t int -s 1 2>/dev/null || true
+
 # ── Keyboard shortcuts ─────────────────────────────────────────────────────
 # Neutralise everything that can launch a shell, open a menu, or reach the
 # desktop while GraceLab's fullscreen window is on top.
