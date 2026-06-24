@@ -39,6 +39,19 @@ while true; do
     # Get the active (focused) window title
     ACTIVE_ID=$(xdotool getactivewindow 2>/dev/null || true)
     if [[ -z "$ACTIVE_ID" ]]; then
+        # No window has focus at all — this happens when xfdesktop is dead
+        # (intentionally, see lockdown-operator.sh) and something like
+        # Ctrl+Alt+D's show_desktop_key reveals the bare root window. There
+        # is nothing to close here, but GraceLab needs to be reclaimed or
+        # the operator is stuck staring at black with no way back except
+        # pressing the same key combo again (confirmed support complaint,
+        # June 2026). Refocus GraceLab directly.
+        GRACELAB_ID=$(xdotool search --name "^GraceLab$" 2>/dev/null | head -1 || true)
+        if [[ -n "$GRACELAB_ID" ]]; then
+            log "No focused window (bare desktop revealed) — refocusing GraceLab."
+            xdotool windowfocus "$GRACELAB_ID" 2>/dev/null || true
+            xdotool windowraise "$GRACELAB_ID" 2>/dev/null || true
+        fi
         sleep "$POLL_INTERVAL"
         continue
     fi

@@ -30,7 +30,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.23"
+CLIENT_VERSION = "0.3.24"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -250,6 +250,12 @@ class GraceLabClient:
 
         if self._fullscreen:
             self.root.after(150, lambda: self.root.attributes("-fullscreen", True))
+            # xfwm4's show_desktop_key (Ctrl+Alt+D and friends) minimizes/
+            # iconifies normal windows including fullscreen ones, dropping
+            # the operator to a bare desktop. -topmost keeps GraceLab pinned
+            # above the stacking order so the WM is less likely to be able
+            # to push it behind anything (confirmed gap: June 2026).
+            self.root.attributes("-topmost", True)
         else:
             self.root.geometry("900x600")
 
