@@ -125,6 +125,15 @@ _neutralize_wm "<Primary><Alt>Insert"
 _neutralize_wm "<Alt>F11"
 _neutralize_wm "<Alt>space"
 
+# xfwm4 caches keybindings at its own startup and does not pick up xfconf
+# changes made after the fact — confirmed on station: the xfconf value was
+# correctly set to "cancel_key" but Ctrl+Alt+D kept showing the desktop until
+# xfwm4 was restarted. Since this script runs after xfwm4 has already
+# started (it's an autostart entry, same as xfwm4 itself), we must force a
+# reload every time so our overrides actually take effect.
+xfwm4 --replace >/dev/null 2>&1 &
+disown
+
 # ── Panel ──────────────────────────────────────────────────────────────────
 # Use pkill only — xfce4-panel --quit goes via D-Bus and pops an error dialog
 # when the panel isn't running, which is exactly the state we want.
