@@ -16,9 +16,13 @@ done
 # ── Session saving ─────────────────────────────────────────────────────────
 # Prevent XFCE from ever saving a session that could restore the panel.
 xfconf-query -c xfce4-session \
+    -p /general/SaveOnExit -t bool -s false 2>/dev/null || \
+xfconf-query -c xfce4-session \
     -p /general/SaveOnExit -n -t bool -s false 2>/dev/null || true
 xfconf-query -c xfce4-session \
-    -p /general/AutoSave  -n -t bool -s false 2>/dev/null || true
+    -p /general/AutoSave -t bool -s false 2>/dev/null || \
+xfconf-query -c xfce4-session \
+    -p /general/AutoSave -n -t bool -s false 2>/dev/null || true
 # Clear any session cache written before this setting took effect.
 rm -rf "${HOME}/.cache/sessions" 2>/dev/null || true
 
@@ -31,9 +35,21 @@ done
 # ── Keyboard shortcuts ─────────────────────────────────────────────────────
 # Neutralise everything that can launch a shell, open a menu, or reach the
 # desktop while GraceLab's fullscreen window is on top.
+#
+# IMPORTANT: -n only creates a NEW property. If the property already exists
+# (the common case — Mint ships these with real bindings out of the box),
+# -n fails immediately and falls through to `|| true`, silently doing
+# nothing. This previously let <Alt>F3 (xfce4-appfinder) and <Primary><Alt>f
+# (thunar) survive every lockdown pass even though they were "handled."
+# Always try the plain overwrite first; only use -n as a fallback for
+# properties that genuinely don't exist yet.
 _noop() {
     xfconf-query -c xfce4-keyboard-shortcuts \
+        -p "/commands/custom/${1}" -t string -s '/bin/true' 2>/dev/null || \
+    xfconf-query -c xfce4-keyboard-shortcuts \
         -p "/commands/custom/${1}" -n -t string -s '/bin/true' 2>/dev/null || true
+    xfconf-query -c xfce4-keyboard-shortcuts \
+        -p "/commands/default/${1}" -t string -s '/bin/true' 2>/dev/null || \
     xfconf-query -c xfce4-keyboard-shortcuts \
         -p "/commands/default/${1}" -n -t string -s '/bin/true' 2>/dev/null || true
 }
@@ -86,14 +102,18 @@ _noop "XF86ScreenSaver"
 # and it is a no-op whenever there is no drag/resize/move in progress (i.e.
 # always, on the kiosk screen).
 _neutralize_wm() {
+    # Try to set as if the property already exists first (the common case —
+    # Mint ships these with real bindings out of the box). Fall back to -n
+    # (create new) only if that fails, e.g. on a station where the binding
+    # was never present at all.
     xfconf-query -c xfce4-keyboard-shortcuts \
-        -p "/xfwm4/custom/${1}" -n -t string -s 'cancel_key' 2>/dev/null || \
+        -p "/xfwm4/custom/${1}" -t string -s 'cancel_key' 2>/dev/null || \
     xfconf-query -c xfce4-keyboard-shortcuts \
-        -p "/xfwm4/custom/${1}" -t string -s 'cancel_key' 2>/dev/null || true
+        -p "/xfwm4/custom/${1}" -n -t string -s 'cancel_key' 2>/dev/null || true
     xfconf-query -c xfce4-keyboard-shortcuts \
-        -p "/xfwm4/default/${1}" -n -t string -s 'cancel_key' 2>/dev/null || \
+        -p "/xfwm4/default/${1}" -t string -s 'cancel_key' 2>/dev/null || \
     xfconf-query -c xfce4-keyboard-shortcuts \
-        -p "/xfwm4/default/${1}" -t string -s 'cancel_key' 2>/dev/null || true
+        -p "/xfwm4/default/${1}" -n -t string -s 'cancel_key' 2>/dev/null || true
 }
 
 _neutralize_wm "<Primary><Alt>d"
