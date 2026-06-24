@@ -27,10 +27,19 @@ xfconf-query -c xfce4-session \
 rm -rf "${HOME}/.cache/sessions" 2>/dev/null || true
 
 # ── Desktop menus ──────────────────────────────────────────────────────────
+# desktop-menu/show=false alone does not reliably stop the right-click menu —
+# xfdesktop appears to cache this at its own startup the same way xfwm4 cached
+# keybindings (confirmed on station, June 2026: Ctrl+Alt+D reaches a desktop
+# where right-click still opens a menu with terminal access, even with this
+# property set to false). Killing xfdesktop outright is the only fix that
+# actually removes the right-click target — with no process drawing the
+# desktop, there is nothing to right-click on, regardless of which key
+# combination got you there or what xfconf says.
 for prop in /desktop-menu/show /windowlist-menu/show; do
     xfconf-query -c xfce4-desktop -p "$prop" -n -t bool -s false 2>/dev/null || true
     xfconf-query -c xfce4-desktop -p "$prop"    -t bool -s false 2>/dev/null || true
 done
+pkill -x xfdesktop 2>/dev/null || true
 
 # ── Workspaces ─────────────────────────────────────────────────────────────
 # Mint ships 4 workspaces by default. Ctrl+F2/F3/F4 and other workspace-
@@ -151,10 +160,11 @@ pkill -f xfce-superkey 2>/dev/null || true
 pkill -x xfce4-panel   2>/dev/null || true
 
 # ── Watchdog loop ──────────────────────────────────────────────────────────
-# Re-kill any panel or menu helper that respawns (e.g. XFCE session manager
-# restarting crashed components).
+# Re-kill any panel, desktop, or menu helper that respawns (e.g. XFCE session
+# manager restarting crashed components).
 while true; do
     sleep 3
     pkill -x xfce4-panel   2>/dev/null || true
+    pkill -x xfdesktop      2>/dev/null || true
     pkill -f xfce-superkey 2>/dev/null || true
 done
