@@ -52,12 +52,14 @@ window, notebook, stack { background-color: #2d013d; }
 notebook > header { background-color: #1e0028; }
 notebook > header > tabs > tab {
     background-color: #1e0028;
-    color: rgba(255,255,255,0.55);
+    background-image: none;
+    color: #baabbf;
     padding: 10px 18px;
     border: none;
 }
 notebook > header > tabs > tab:checked {
     background-color: #2d013d;
+    background-image: none;
     color: #b5d434;
     border-bottom: 3px solid #087e77;
 }
