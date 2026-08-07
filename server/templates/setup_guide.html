@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Client Setup Guide{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Client Setup Guide</h2>
+</div>
+
+<p style="color:var(--color-muted);font-size:13px;margin-bottom:1.5rem;max-width:680px">
+  Follow these steps to provision a new lab workstation. Complete Step 1 first (you need the token before running the installer).
+</p>
+
+<!-- Step 1: Register the station -->
+<div class="setup-step">
+  <div class="setup-step-header">
+    <span class="setup-step-num">1</span>
+    <span class="setup-step-title">Register the Station</span>
+  </div>
+  <p>
+    In the <strong>Stations</strong> section, click <strong>Register Station</strong> and fill in the hostname
+    and display name for the new machine. Submit the form — the one-time token will be shown on the next screen.
+    Copy it before navigating away.
+  </p>
+  <p>
+    <a href="{{ url_for('stations.new_station') }}" class="btn btn-primary btn-sm">Register Station &rarr;</a>
+  </p>
+  <div class="setup-note">
+    The hostname must exactly match the machine's actual hostname (e.g. <code>LAB-PC-01</code>).
+    The token is shown only once — if you lose it, rotate a new one from the station detail page.
+  </div>
+</div>
+
+<!-- Step 2: Clone the repo -->
+<div class="setup-step">
+  <div class="setup-step-header">
+    <span class="setup-step-num">2</span>
+    <span class="setup-step-title">Clone the Repo onto the New Machine</span>
+  </div>
+  <p>On the new workstation, open a terminal and clone the GraceLab repository:</p>
+  <div class="copy-block">
+    <pre>git clone https://github.com/sixesandsevens/GraceLab.git && cd GraceLab</pre>
+    <button class="copy-btn" onclick="copyBlock(this)">Copy</button>
+  </div>
+  <div class="setup-note">
+    The machine needs git installed (<code>sudo apt install git</code>).
+    Alternatively, copy the repo folder from another station via USB or <code>scp</code>.
+  </div>
+</div>
+
+<!-- Step 3: Run the installer -->
+<div class="setup-step">
+  <div class="setup-step-header">
+    <span class="setup-step-num">3</span>
+    <span class="setup-step-title">Run the Installer</span>
+  </div>
+  <p>
+    From inside the cloned repo, run the installer as root. Replace <code>LAB-PC-01</code> with the
+    actual hostname and paste the token from Step 1:
+  </p>
+  <div class="copy-block">
+    <pre>sudo ./tools/install-client.sh \
+  --server-url {{ server_url }} \
+  --hostname   LAB-PC-01 \
+  --token      PASTE-TOKEN-HERE</pre>
+    <button class="copy-btn" onclick="copyBlock(this)">Copy</button>
+  </div>
+  <p>The installer will:</p>
+  <ul style="font-size:13px;padding-left:1.5rem;margin-bottom:0.75rem;line-height:2">
+    <li>Create <code>gracelab</code> and <code>guestlab</code> system users</li>
+    <li>Install the client to <code>/opt/gracelab-client/</code></li>
+    <li>Write <code>/etc/gracelab/client_config.ini</code></li>
+    <li>Configure LightDM autologin and XFCE kiosk lockdown</li>
+    <li>Apply Firefox policies and terminal blocks</li>
+  </ul>
+  <div class="setup-note">
+    The installer must be run from the root of the GraceLab repo. It requires <code>python3</code> and will
+    install <code>python3-tk</code> and <code>rsync</code> automatically if missing.
+  </div>
+</div>
+
+<!-- Step 4: Reboot -->
+<div class="setup-step">
+  <div class="setup-step-header">
+    <span class="setup-step-num">4</span>
+    <span class="setup-step-title">Reboot and Verify</span>
+  </div>
+  <p>Reboot the machine. LightDM will autologin as <code>gracelab</code> and the kiosk screen should appear fullscreen.</p>
+  <div class="copy-block">
+    <pre>sudo reboot</pre>
+    <button class="copy-btn" onclick="copyBlock(this)">Copy</button>
+  </div>
+  <p>After reboot, check the <strong>Stations</strong> dashboard — the new station should appear online within 30 seconds once it reaches the server.</p>
+  <div class="setup-note">
+    If the station shows <strong>Offline</strong>, confirm it is on the correct network and can reach
+    <code>{{ server_url }}</code>. Also verify the hostname in <code>/etc/gracelab/client_config.ini</code>
+    matches what was registered in Step 1.
+  </div>
+</div>
+
+<script>
+function copyBlock(btn) {
+  const text = btn.previousElementSibling.textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(function() {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+</script>
+{% endblock %}

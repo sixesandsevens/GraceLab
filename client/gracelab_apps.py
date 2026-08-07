@@ -48,30 +48,29 @@ CATEGORIES = [
 ]
 
 CSS = b"""
-window { background-color: #1f2937; }
-notebook { background-color: #1f2937; }
-notebook > header { background-color: #111827; }
+window, notebook, stack { background-color: #2d013d; }
+notebook > header { background-color: #1e0028; }
 notebook > header > tabs > tab {
-    background-color: #111827;
-    color: #9ca3af;
+    background-color: #1e0028;
+    color: rgba(255,255,255,0.55);
     padding: 10px 18px;
     border: none;
 }
 notebook > header > tabs > tab:checked {
-    background-color: #1f2937;
-    color: #f9fafb;
-    border-bottom: 2px solid #3b82f6;
+    background-color: #2d013d;
+    color: #b5d434;
+    border-bottom: 3px solid #087e77;
 }
 button.app-btn {
-    background: transparent;
+    background-color: #2d013d;
     border: none;
     border-radius: 8px;
     color: #f9fafb;
     padding: 12px 8px;
     min-width: 108px;
 }
-button.app-btn:hover  { background-color: #374151; }
-button.app-btn:active { background-color: #4b5563; }
+button.app-btn:hover  { background-color: #46005f; }
+button.app-btn:active { background-color: #5a007a; }
 label.app-label {
     color: #f9fafb;
     font-size: 11px;

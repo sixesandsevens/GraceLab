@@ -269,6 +269,14 @@ def edit_user(user_id):
     return render_template("user_form.html", form=form, title=f"Edit — {user.username}", user=user)
 
 
+@admin_bp.route("/setup")
+@login_required
+@_admin_required
+def setup_guide():
+    server_url = request.host_url.rstrip("/")
+    return render_template("setup_guide.html", server_url=server_url)
+
+
 @admin_bp.route("/users/<int:user_id>/deactivate", methods=["POST"])
 @login_required
 @_admin_required

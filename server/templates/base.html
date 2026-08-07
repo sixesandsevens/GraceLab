@@ -47,6 +47,9 @@
 
     <li><a href="{{ url_for('admin.settings') }}"
         {% if request.endpoint == 'admin.settings' %}class="active"{% endif %}>Settings</a></li>
+
+    <li><a href="{{ url_for('admin.setup_guide') }}"
+        {% if request.endpoint == 'admin.setup_guide' %}class="active"{% endif %}>Setup Guide</a></li>
     {% endif %}
   </ul>
 
