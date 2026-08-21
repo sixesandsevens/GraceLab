@@ -154,6 +154,14 @@ def mark_out_of_service(station_id):
 @login_required
 @_admin_required
 def push_update(station_id):
+    """
+    Queue an update for this station. This is admission control, not a
+    remote interrupt: the station stops admitting new guest sessions
+    immediately, but any session already in progress finishes normally and
+    the update installs once the station goes idle. Also doubles as the
+    "Retry Update" action — re-pushing after a failure clears the stale
+    failed status and re-queues the same target.
+    """
     station = db.get_or_404(Station, station_id)
     target = Setting.get("client_stable_version", "")
     if not target:
@@ -161,11 +169,14 @@ def push_update(station_id):
         return redirect(url_for("stations.list_stations"))
 
     station.desired_client_version = target
+    station.client_update_status = None
+    station.client_update_error = None
     log_audit("station_update_pushed", target_type="station", target_id=station.id,
               station_id=station.id, details={"target_version": target})
     db.session.commit()
     flash(f"Update to v{target} queued for {station.display_name}. "
-          f"The station will install on its next check.", "success")
+          f"New guest sessions are blocked until it installs; any session "
+          f"already in progress finishes normally first.", "success")
     return redirect(url_for("stations.list_stations"))
 
 
@@ -174,7 +185,19 @@ def push_update(station_id):
 @_admin_required
 def cancel_update(station_id):
     station = db.get_or_404(Station, station_id)
+
+    if station.client_update_status in ("downloading", "installing"):
+        # The client-side installer isn't remotely interruptible, so clearing
+        # the lock here would just let a not-yet-finished install race the
+        # admission check. Reject rather than attempt an unsafe interruption.
+        flash(f"{station.display_name} is already {station.client_update_status} "
+              f"v{station.desired_client_version} — cannot safely cancel mid-install. "
+              f"Wait for it to finish, then retry if it fails.", "danger")
+        return redirect(url_for("stations.list_stations"))
+
     station.desired_client_version = None
+    station.client_update_status = None
+    station.client_update_error = None
     log_audit("station_update_cancelled", target_type="station", target_id=station.id,
               station_id=station.id)
     db.session.commit()

@@ -39,6 +39,10 @@ def _make_client(**attrs):
     client._expires_at = None
     client._warning_seconds = 300
     client._is_open_session = False
+    client._update_locked = False
+    client._update_status = None
+    client._desired_client_version = None
+    client._update_lock_screen_status = None
     for key, value in attrs.items():
         setattr(client, key, value)
     return client

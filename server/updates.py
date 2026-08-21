@@ -130,7 +130,11 @@ def update_check():
         "available_version": target_version,
         "download_url": download_url,
         "checksum_sha256": checksum,
-        "forced": bool(station.desired_client_version),
+        # True when this target came from a per-station admin push (as
+        # opposed to the channel-wide stable/beta version). This is NOT a
+        # license to skip the active-session check — it only affects
+        # install_policy == "manual" gating on the client. See updater.py.
+        "station_targeted": bool(station.desired_client_version),
     })
 
 
@@ -155,6 +159,24 @@ def update_status():
         return jsonify({"ok": False, "error": "invalid_status"}), 400
 
     now = datetime.now(timezone.utc)
+
+    if status == "complete" and version:
+        target = station.desired_client_version
+        if target and version != target:
+            # The client finished installing a different version than the one
+            # we queued — e.g. a stale completion report racing a newer push.
+            # Do not trust it to clear the session-admission lock; treat it as
+            # a failure so the station stays locked and visible to staff
+            # rather than silently reopening with the wrong version.
+            status = "failed"
+            error = (
+                f"Reported completed version {version} does not match "
+                f"queued target {target}."
+            )
+        else:
+            station.client_version = version[:32]
+            station.desired_client_version = None
+
     station.client_update_status = status
     station.client_update_error = error or None
 
@@ -162,9 +184,6 @@ def update_status():
         station.last_update_started_at = now
     elif status in ("complete", "failed"):
         station.last_update_finished_at = now
-        if status == "complete" and version:
-            station.client_version = version[:32]
-            station.desired_client_version = None
 
     db.session.commit()
     return jsonify({"ok": True})

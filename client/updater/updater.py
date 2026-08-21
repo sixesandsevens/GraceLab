@@ -184,6 +184,27 @@ def is_session_active():
     return os.path.exists(GUEST_TIMER_FILE)
 
 
+def should_install(policy, station_targeted, session_active):
+    """
+    Decide whether to proceed with downloading+installing an available
+    update. Returns (proceed: bool, skip_reason: str | None).
+
+    This is the sole gate for the Patch B safety fix: a per-station admin
+    push (station_targeted) may bypass the "manual" policy's opt-in
+    requirement, but it must NEVER bypass the active-session check — a
+    manually queued update means "install once idle," not "interrupt the
+    current guest." Only the local "force" policy (edited directly in this
+    station's client_config.ini) skips the active-session check.
+    """
+    if policy == "disabled":
+        return False, "Policy is disabled — skipping."
+    if policy == "manual" and not station_targeted:
+        return False, "Policy is manual and no update was queued for this station — skipping."
+    if policy != "force" and session_active:
+        return False, "Session active — deferring update to next check."
+    return True, None
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -223,24 +244,23 @@ def run():
             log.debug("No update available (current=%s).", current_version)
             continue
 
-        available     = result["available_version"]
-        download_url  = result["download_url"]
-        checksum      = result["checksum_sha256"]
-        forced        = result.get("forced", False)
+        available        = result["available_version"]
+        download_url     = result["download_url"]
+        checksum         = result["checksum_sha256"]
+        # True when this target came from a per-station admin push rather
+        # than the channel-wide stable/beta version. This only affects
+        # "manual" policy's opt-in gate below — it must NEVER bypass the
+        # active-session check. A manually queued update is a request to
+        # install as soon as the station goes idle, not an instruction to
+        # interrupt whoever is currently using it.
+        station_targeted = result.get("station_targeted", False)
 
         log.info("Update available: %s → %s%s",
-                 current_version, available, " (manual push)" if forced else "")
+                 current_version, available, " (station-queued)" if station_targeted else "")
 
-        if policy == "disabled":
-            log.info("Policy is disabled — skipping.")
-            continue
-
-        if policy == "manual" and not forced:
-            log.info("Policy is manual and no push was queued — skipping.")
-            continue
-
-        if policy == "idle_only" and is_session_active() and not forced:
-            log.info("Session active — deferring update to next check.")
+        proceed, skip_reason = should_install(policy, station_targeted, is_session_active())
+        if not proceed:
+            log.info(skip_reason)
             continue
 
         # Proceed

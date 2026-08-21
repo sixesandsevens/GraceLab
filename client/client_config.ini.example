@@ -38,4 +38,7 @@ channel = stable
 # How often to check for updates (seconds). Only checked from IDLE state.
 check_interval_seconds = 300
 # disabled | manual | idle_only | force
+# idle_only/manual always wait for the station to be idle, including updates
+# queued from the admin dashboard. Only "force" installs during an active
+# session — set it per-station only if you specifically need that.
 install_policy = idle_only

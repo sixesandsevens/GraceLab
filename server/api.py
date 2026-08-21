@@ -163,6 +163,11 @@ def heartbeat(station):
         "active_expires_at": active_expires_at,
         "active_warning_minutes": active_warning_minutes,
         "active_open_mode": active_open_mode,
+        # Session-admission lock: any non-null desired_client_version means a
+        # new session must not start (see the update-lock checks below).
+        "update_pending": bool(station.desired_client_version),
+        "update_status": station.client_update_status,
+        "desired_client_version": station.desired_client_version,
     })
 
 
@@ -185,6 +190,9 @@ def station_config(station):
         "open_lab_mode": Setting.get_bool("open_lab_mode", False),
         "open_session_duration_minutes": Setting.get_int("open_session_duration_minutes", 120),
         "tos_text": Setting.get("tos_text", ""),
+        "update_pending": bool(station.desired_client_version),
+        "update_status": station.client_update_status,
+        "desired_client_version": station.desired_client_version,
     })
 
 
@@ -207,6 +215,12 @@ def session_validate(station):
 
     if station.status == "out_of_service":
         return jsonify({"ok": False, "error": "station_out_of_service"}), 403
+
+    # A queued/active update is a session-admission lock: reject here even if
+    # a stale client UI still shows the code-entry screen (defense in depth
+    # alongside the client-side check).
+    if station.desired_client_version:
+        return jsonify({"ok": False, "error": "station_updating"}), 403
 
     now = datetime.now(timezone.utc)
 
@@ -252,6 +266,10 @@ def session_start(station):
     if station.status == "out_of_service":
         return jsonify({"ok": False, "error": "station_out_of_service"}), 403
 
+    # See session_validate above — a queued/active update blocks new admission.
+    if station.desired_client_version:
+        return jsonify({"ok": False, "error": "station_updating"}), 403
+
     if station.current_session_id:
         return jsonify({"ok": False, "error": "station_already_in_session"}), 409
 
@@ -295,6 +313,11 @@ def session_open_start(station):
 
     if station.status == "out_of_service":
         return jsonify({"ok": False, "error": "station_out_of_service"}), 403
+
+    # See session_validate above — a queued/active update blocks new admission,
+    # including open-mode admission.
+    if station.desired_client_version:
+        return jsonify({"ok": False, "error": "station_updating"}), 403
 
     if station.current_session_id:
         return jsonify({"ok": False, "error": "station_already_in_session"}), 409

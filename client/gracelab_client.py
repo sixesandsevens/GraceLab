@@ -15,6 +15,13 @@ States:
   Any state -> NEEDS_ATTENTION  (on unrecoverable error)
   IDLE      -> OFFLINE          (server unreachable)
   OFFLINE   -> IDLE             (server back)
+
+  IDLE / RESETTING -> UPDATE_PENDING / UPDATE_FAILED
+      (server has a queued or failed update for this station — see
+      _return_to_idle_or_update. An update never interrupts SESSION_ACTIVE/
+      SESSION_WARNING; it is only honored the next time the client would
+      otherwise return to an admission-capable idle screen.)
+  UPDATE_PENDING / UPDATE_FAILED -> IDLE  (server reports the lock cleared)
 """
 
 import configparser
@@ -206,6 +213,8 @@ class GraceLabClient:
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
     OFFLINE         = "OFFLINE"
     TOS_PENDING     = "TOS_PENDING"
+    UPDATE_PENDING  = "UPDATE_PENDING"
+    UPDATE_FAILED   = "UPDATE_FAILED"
 
     def __init__(self, root, cfg):
         self.root = root
@@ -233,6 +242,15 @@ class GraceLabClient:
         self._sync_job = None            # after() handle for session status poll
         self._code_trace_id = None       # trace handle for code entry formatter
         self._last_guestlab_switch = 0   # epoch of last dm-tool switch-to-user guestlab call
+
+        # Update-lock state, from the server's heartbeat/config responses.
+        # _update_locked is the session-admission lock: while True, no new
+        # session may start. It never interrupts a session already running —
+        # see _return_to_idle_or_update.
+        self._update_locked = False
+        self._update_status = None              # None | "downloading" | "installing" | "failed" | ...
+        self._desired_client_version = None
+        self._update_lock_screen_status = None   # status the update screen currently reflects
 
         self._build_ui()
         self._show_idle()
@@ -438,6 +456,13 @@ class GraceLabClient:
     def _begin_open_session(self):
         if self._state != self.IDLE:
             return
+        if self._update_locked:
+            # Belt-and-suspenders: the idle screen should already have been
+            # replaced by the update-lock screen, but refuse here too in case
+            # of a race between the lock engaging and the next heartbeat/UI
+            # refresh. The server enforces this independently either way.
+            self._show_update_lock_screen()
+            return
         if self._tos_text:
             self._tos_callback = self._proceed_open_session
             self._show_tos()
@@ -460,6 +485,10 @@ class GraceLabClient:
         if not result.get("ok"):
             err = result.get("error", "unknown")
             log.warning("Open start rejected: %s", err)
+            if err == "station_updating":
+                self._update_locked = True
+                self.root.after(0, self._show_update_lock_screen)
+                return
             if err == "station_already_in_session":
                 # Server still has an active session from before the reboot
                 # (client hasn't heartbeated yet so recovery hasn't fired).
@@ -678,6 +707,63 @@ class GraceLabClient:
         tk.Label(outer, text="Checking previous session status.",
                  bg=BG, fg=FG_MUTED, font=self._f_body).pack(pady=(12, 0))
 
+    def _show_update_lock_screen(self):
+        """Dispatch to the pending- or failed-update screen based on the last
+        status the server reported. The single choke point callers use so the
+        displayed text always matches self._update_status."""
+        self._update_lock_screen_status = self._update_status
+        if self._update_status == "failed":
+            self._show_update_failed()
+        else:
+            self._show_update_pending()
+
+    def _show_update_pending(self):
+        self._set_state(self.UPDATE_PENDING)
+        self._cancel_timer()
+        self._cancel_sync()
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(outer, text="System Update", bg=BG, fg=FG, font=self._f_heading).pack(pady=(0, 16))
+        tk.Label(outer,
+                 text="This computer is temporarily unavailable while a\n"
+                      "system update is being installed.",
+                 bg=BG, fg=FG_MUTED, font=self._f_body, justify=tk.CENTER).pack(pady=(0, 12))
+        tk.Label(outer, text="Please use another computer or try again shortly.",
+                 bg=BG, fg=FG_MUTED, font=self._f_small).pack()
+
+    def _show_update_failed(self):
+        self._set_state(self.UPDATE_FAILED)
+        self._cancel_timer()
+        self._cancel_sync()
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(outer, text="This computer is temporarily unavailable.",
+                 bg=BG, fg=ERROR_FG, font=self._f_heading).pack(pady=(0, 16))
+        tk.Label(outer, text="A system update could not be completed.",
+                 bg=BG, fg=FG_MUTED, font=self._f_body).pack(pady=(0, 8))
+        tk.Label(outer, text="Please ask staff for assistance.",
+                 bg=BG, fg=FG_MUTED, font=self._f_small).pack()
+
+    def _return_to_idle_or_update(self):
+        """
+        The single choke point for returning to an admission-capable state
+        after a session/reset/recovery flow finishes. Routing through
+        _show_idle() directly from those flows would let a session admitted
+        the instant Start Session reappears race a queued update the client
+        already knows about — so every "we're done, go back to idle" call
+        site must go through this instead.
+        """
+        if self._update_locked:
+            self._show_update_lock_screen()
+        else:
+            self._show_idle()
+
     # ------------------------------------------------------------------
     # Session state persistence (survives reboots)
     # ------------------------------------------------------------------
@@ -850,6 +936,10 @@ class GraceLabClient:
     def _submit_code(self):
         if self._state != self.IDLE:
             return
+        if self._update_locked:
+            # See _begin_open_session — same race, same defense-in-depth.
+            self._show_update_lock_screen()
+            return
         code = self._code_var.get().strip()
         if not code:
             return
@@ -873,6 +963,10 @@ class GraceLabClient:
             return
 
         if not result.get("ok"):
+            if result.get("error") == "station_updating":
+                self._update_locked = True
+                self.root.after(0, self._show_update_lock_screen)
+                return
             self.root.after(0, lambda: self._idle_with_error(
                 "That code is invalid, expired, or already used.\n"
                 "Please check the code or ask staff for help."
@@ -897,6 +991,10 @@ class GraceLabClient:
         if not start_result.get("ok"):
             err = start_result.get("error", "unknown")
             log.warning("Start rejected: %s", err)
+            if err == "station_updating":
+                self._update_locked = True
+                self.root.after(0, self._show_update_lock_screen)
+                return
             self.root.after(0, lambda: self._idle_with_error(
                 "Could not start session. Please ask staff for help."
             ))
@@ -1383,7 +1481,10 @@ class GraceLabClient:
             log.info("Session %s: reset completed — returning to idle.", sid)
             self._session_id = None
             self._expires_at = None
-            self.root.after(0, self._show_idle)
+            # Route through the update-lock gate, not _show_idle directly —
+            # a session ending is exactly the moment a queued update becomes
+            # relevant, and this must never race a fresh session admission.
+            self.root.after(0, self._return_to_idle_or_update)
         else:
             try:
                 self.api.event(sid, "profile_reset_failed", "Reset script failed.")
@@ -1415,17 +1516,48 @@ class GraceLabClient:
         try:
             resp = self.api.heartbeat(status, self._session_id)
             station_status = resp.get("station_status") if resp else None
+            if resp:
+                # Record the update lock on every heartbeat regardless of
+                # state — this does NOT touch the UI by itself. An active
+                # session only learns the lock is queued; it is honored the
+                # next time the client would return to idle (see
+                # _return_to_idle_or_update / _run_reset).
+                self._update_locked = bool(resp.get("update_pending"))
+                self._update_status = resp.get("update_status")
+                self._desired_client_version = resp.get("desired_client_version")
+
             if self._state == self.OFFLINE:
                 log.info("Server back online.")
-                self.root.after(0, self._show_idle)
+                self.root.after(0, self._return_to_idle_or_update)
             elif self._state == self.NEEDS_ATTENTION and station_status == "available":
                 log.info("Station cleared by server — returning to idle.")
-                self.root.after(0, self._show_idle)
+                self.root.after(0, self._return_to_idle_or_update)
             elif self._state == self.IDLE and station_status in ("needs_attention", "out_of_service"):
                 log.warning("Server reports station %s — showing attention screen.", station_status)
                 self.root.after(0, lambda s=station_status: self._show_needs_attention(
                     f"This station has been marked {s.replace('_', ' ')}."
                 ))
+            elif self._state == self.IDLE and self._update_locked:
+                log.info("Update lock active (status=%s, target=%s) — blocking new sessions.",
+                         self._update_status, self._desired_client_version)
+                self.root.after(0, self._show_update_lock_screen)
+            elif self._state in (self.UPDATE_PENDING, self.UPDATE_FAILED):
+                # Operational station status still takes priority over a
+                # cheerful update screen, and a completed/cancelled update
+                # must not be masked by a stale attention state either — both
+                # are handled the same way other states already handle them.
+                if station_status in ("needs_attention", "out_of_service"):
+                    log.warning("Server reports station %s — showing attention screen.", station_status)
+                    self.root.after(0, lambda s=station_status: self._show_needs_attention(
+                        f"This station has been marked {s.replace('_', ' ')}."
+                    ))
+                elif not self._update_locked:
+                    log.info("Update lock cleared by server — returning to idle.")
+                    self.root.after(0, self._show_idle)
+                elif self._update_lock_screen_status != self._update_status:
+                    # Status advanced (e.g. pending -> installing -> failed) —
+                    # refresh the on-screen text to match.
+                    self.root.after(0, self._show_update_lock_screen)
             elif (
                 self._state == self.IDLE
                 and self._session_id is None
@@ -1455,8 +1587,13 @@ class GraceLabClient:
             if self._state == self.IDLE:
                 self.root.after(0, self._show_offline)
         else:
-            # Updater signals a restart only when the station is idle
-            if self._state == self.IDLE and os.path.exists(UPDATE_READY_FLAG):
+            # Updater signals a restart once idle-like: normal idle, or the
+            # update screen we're showing precisely because that install is
+            # what just finished. Never mid-session.
+            if (
+                self._state in (self.IDLE, self.UPDATE_PENDING, self.UPDATE_FAILED)
+                and os.path.exists(UPDATE_READY_FLAG)
+            ):
                 log.info("Update ready — exiting for restart.")
                 self.root.after(0, self.root.quit)
                 return
@@ -1507,6 +1644,11 @@ class GraceLabClient:
             log.warning("Immediate recovery heartbeat failed: %s", e)
             self.root.after(0, self._show_idle)
             return
+        if resp:
+            self._update_locked = bool(resp.get("update_pending"))
+            self._update_status = resp.get("update_status")
+            self._desired_client_version = resp.get("desired_client_version")
+
         session_id = resp.get("active_session_id") if resp else None
         expires_at = resp.get("active_expires_at") if resp else None
         if session_id and expires_at:
@@ -1514,8 +1656,9 @@ class GraceLabClient:
             open_mode = bool(resp.get("active_open_mode"))
             self._recover_from_heartbeat(session_id, expires_at, warning_minutes, open_mode)
         else:
-            # Nothing active on the server — just go idle
-            self.root.after(0, self._show_idle)
+            # Nothing active on the server — go idle, or the update screen if
+            # a queued update means this station can't admit a new one.
+            self.root.after(0, self._return_to_idle_or_update)
 
     def _reconnect_loop(self):
         if self._state != self.OFFLINE:
@@ -1524,9 +1667,13 @@ class GraceLabClient:
 
     def _try_reconnect(self):
         try:
-            self.api.heartbeat("available")
+            resp = self.api.heartbeat("available")
             log.info("Reconnected to server.")
-            self.root.after(0, self._show_idle)
+            if resp:
+                self._update_locked = bool(resp.get("update_pending"))
+                self._update_status = resp.get("update_status")
+                self._desired_client_version = resp.get("desired_client_version")
+            self.root.after(0, self._return_to_idle_or_update)
         except APIError:
             self.root.after(10000, self._reconnect_loop)
 
@@ -1545,8 +1692,15 @@ class GraceLabClient:
                 self._open_session_duration_minutes = result.get(
                     "open_session_duration_minutes", 120
                 )
+                # Fetched at startup (before the first heartbeat) and whenever
+                # idle, so a station that already has an update queued shows
+                # the lock screen immediately instead of a usable Start
+                # Session button for up to one heartbeat interval.
+                self._update_locked = bool(result.get("update_pending"))
+                self._update_status = result.get("update_status")
+                self._desired_client_version = result.get("desired_client_version")
                 if self._state == self.IDLE:
-                    self.root.after(0, self._show_idle)
+                    self.root.after(0, self._return_to_idle_or_update)
         except APIError:
             pass
 

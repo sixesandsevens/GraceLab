@@ -31,11 +31,20 @@
       <td>
         {% if st.client_version %}
           <code>{{ st.client_version }}</code>
-          {% if st.client_update_status and st.client_update_status != 'current' %}
-            <span class="status-badge status-needs_attention" style="font-size:.7rem;margin-left:.25rem">{{ st.client_update_status.replace('_', ' ') }}</span>
-          {% endif %}
         {% else %}
           <span style="color:var(--muted)">—</span>
+        {% endif %}
+        {% if st.desired_client_version %}
+          {% if st.client_update_status == 'failed' %}
+            <span class="status-badge status-error" style="font-size:.7rem;margin-left:.25rem"
+              {% if st.client_update_error %}title="{{ st.client_update_error }}"{% endif %}>Update Failed</span>
+          {% elif st.client_update_status == 'downloading' %}
+            <span class="status-badge status-updating" style="font-size:.7rem;margin-left:.25rem">Downloading v{{ st.desired_client_version }}</span>
+          {% elif st.client_update_status == 'installing' %}
+            <span class="status-badge status-updating" style="font-size:.7rem;margin-left:.25rem">Installing v{{ st.desired_client_version }}</span>
+          {% else %}
+            <span class="status-badge status-pending" style="font-size:.7rem;margin-left:.25rem">Update Pending — v{{ st.desired_client_version }}</span>
+          {% endif %}
         {% endif %}
       </td>
       <td>
@@ -68,13 +77,20 @@
           {% if st.desired_client_version %}
           <form method="post" action="{{ url_for('stations.cancel_update', station_id=st.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-secondary">Cancel Update</button>
+            <button type="submit" class="btn btn-sm btn-secondary"
+              onclick="return confirm('Cancel the pending update for {{ st.display_name }}? An install already in progress will not be interrupted.')">Cancel Update</button>
           </form>
-          <span class="status-badge status-offline" style="font-size:.7rem;vertical-align:middle">v{{ st.desired_client_version }} pending</span>
+          {% if st.client_update_status == 'failed' %}
+          <form method="post" action="{{ url_for('stations.push_update', station_id=st.id) }}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-secondary">Retry Update</button>
+          </form>
+          {% endif %}
           {% elif st.client_version != stable_version %}
           <form method="post" action="{{ url_for('stations.push_update', station_id=st.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-secondary">Push Update</button>
+            <button type="submit" class="btn btn-sm btn-secondary"
+              onclick="return confirm('Queue v{{ stable_version }} for {{ st.display_name }}? New guest sessions will be blocked until it installs; a session already in progress finishes normally first.')">Push Update</button>
           </form>
           {% endif %}
         {% endif %}

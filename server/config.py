@@ -35,6 +35,14 @@ class DevelopmentConfig(Config):
     DEBUG = True
 
 
+class TestingConfig(Config):
+    TESTING = True
+    DEBUG = True
+    SQLALCHEMY_DATABASE_URI = "sqlite://"  # in-memory
+    WTF_CSRF_ENABLED = False
+    UPDATES_DIR = os.path.join(BASE_DIR, "instance", "test-updates")
+
+
 class ProductionConfig(Config):
     DEBUG = False
     WTF_CSRF_ENABLED = True
@@ -55,5 +63,6 @@ class ProductionConfig(Config):
 config = {
     "development": DevelopmentConfig,
     "production": ProductionConfig,
+    "testing": TestingConfig,
     "default": ProductionConfig,  # safe default — dev must be explicit
 }
