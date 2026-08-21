@@ -108,6 +108,20 @@ def update_check():
         return jsonify({"ok": True, "update_available": False, "reason": "no_version_configured"})
 
     if reported_version == target_version:
+        if station.desired_client_version:
+            # The station already reports running the exact version we
+            # queued, but desired_client_version is still set — the most
+            # likely explanation is a lost final "complete" update-status
+            # report (network blip, restart race right after install).
+            # Reconcile from the station's own authenticated report rather
+            # than leaving it admission-locked forever waiting for a report
+            # that already happened.
+            station.client_version = reported_version[:32]
+            station.client_update_status = "complete"
+            station.client_update_error = None
+            station.desired_client_version = None
+            station.last_update_finished_at = datetime.now(timezone.utc)
+            db.session.commit()
         return jsonify({"ok": True, "update_available": False,
                         "current_version": reported_version})
 

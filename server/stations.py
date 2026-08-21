@@ -1,3 +1,4 @@
+import os
 import secrets
 from datetime import datetime, timezone
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
@@ -9,6 +10,7 @@ from werkzeug.security import generate_password_hash
 from extensions import db
 from models import Station, Session, SessionEvent, AuditLog, Setting
 from audit import log_audit
+from updates import _package_filename
 
 stations_bp = Blueprint("stations", __name__, url_prefix="/admin/stations")
 
@@ -166,6 +168,16 @@ def push_update(station_id):
     target = Setting.get("client_stable_version", "")
     if not target:
         flash("No stable version is published in Settings → Client Updates.", "danger")
+        return redirect(url_for("stations.list_stations"))
+
+    # Don't admission-lock a station for an update we can't actually serve —
+    # mirrors update_check()'s package_not_found defense on the client side.
+    updates_dir = current_app.config["UPDATES_DIR"]
+    filename = _package_filename(target)
+    if not os.path.isfile(os.path.join(updates_dir, filename)):
+        flash(f"Cannot queue v{target} for {station.display_name} — package "
+              f"{filename} was not found on the server. Upload it in "
+              f"Client Updates first.", "danger")
         return redirect(url_for("stations.list_stations"))
 
     station.desired_client_version = target

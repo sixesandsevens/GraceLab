@@ -13,6 +13,7 @@ Run with (server deps required — see server/requirements.txt):
 """
 
 import os
+import shutil
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,7 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 from app import create_app  # noqa: E402
 from extensions import db  # noqa: E402
 from models import Session, Setting, Station, User  # noqa: E402
+from updates import _package_filename  # noqa: E402
 
 STATION_TOKEN = "test-station-token"
 
@@ -47,9 +49,12 @@ class UpdateLockTestCase(unittest.TestCase):
         db.session.commit()
 
     def tearDown(self):
+        updates_dir = self.app.config.get("UPDATES_DIR")
         db.session.remove()
         db.drop_all()
         self.ctx.pop()
+        if updates_dir and os.path.isdir(updates_dir):
+            shutil.rmtree(updates_dir, ignore_errors=True)
 
     # -- helpers ----------------------------------------------------------
 
@@ -61,6 +66,17 @@ class UpdateLockTestCase(unittest.TestCase):
 
     def _refresh_station(self):
         db.session.refresh(self.station)
+
+    def _write_package(self, version):
+        """Create a dummy package file so update_check/push_update see it as
+        available. Real packages are real tarballs; only the filename and
+        presence matter for the endpoints under test here."""
+        updates_dir = self.app.config["UPDATES_DIR"]
+        os.makedirs(updates_dir, exist_ok=True)
+        path = os.path.join(updates_dir, _package_filename(version))
+        with open(path, "wb") as f:
+            f.write(b"fake package contents for testing")
+        return path
 
     def _make_code(self, code="123456", minutes=60):
         sess = Session(
@@ -254,6 +270,7 @@ class AdminPushCancelRetryTests(UpdateLockTestCase):
         super().setUp()
         self._login_admin()
         Setting.set("client_stable_version", "0.4.0")
+        self._write_package("0.4.0")
 
     def test_push_update_queues_target_and_resets_status(self):
         self.station.client_update_status = "failed"
@@ -315,6 +332,81 @@ class AdminPushCancelRetryTests(UpdateLockTestCase):
             json={"code": "444444"},
         )
         self.assertTrue(resp.get_json()["ok"])
+
+    def test_push_update_without_package_does_not_lock_station(self):
+        # Stable version points at 0.5.0, but no package for it was uploaded
+        # (only 0.4.0 exists, from setUp). Queuing it must not admission-lock
+        # the station for an update the server can't actually serve.
+        Setting.set("client_stable_version", "0.5.0")
+        self._make_code("555555")
+
+        resp = self.client.post(f"/admin/stations/{self.station.id}/push-update")
+        self.assertEqual(resp.status_code, 302)
+
+        self._refresh_station()
+        self.assertIsNone(self.station.desired_client_version)
+
+        # Station admission must remain available.
+        validate_resp = self.client.post(
+            "/api/session/validate", headers=self._station_headers(),
+            json={"code": "555555"},
+        )
+        self.assertTrue(validate_resp.get_json()["ok"])
+
+
+class UpdateCheckReconciliationTests(UpdateLockTestCase):
+    """1. Recover from a lost update-status 'complete' report."""
+
+    def test_lost_completion_report_is_reconciled_on_next_check(self):
+        # Station was queued for 0.4.0 and actually installed it, but the
+        # final update-status "complete" call never reached the server
+        # (network blip / restart race). The client's next authenticated
+        # update-check reports current_version=0.4.0, which must reconcile
+        # the lock instead of leaving the station admission-locked forever.
+        self.station.desired_client_version = "0.4.0"
+        self.station.client_update_status = "installing"
+        db.session.commit()
+
+        resp = self.client.post(
+            "/api/station/update-check", headers=self._station_headers(),
+            json={"current_version": "0.4.0", "channel": "stable"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertFalse(data["update_available"])
+
+        self._refresh_station()
+        self.assertIsNone(self.station.desired_client_version)
+        self.assertEqual(self.station.client_version, "0.4.0")
+        self.assertEqual(self.station.client_update_status, "complete")
+        self.assertIsNone(self.station.client_update_error)
+        self.assertIsNotNone(self.station.last_update_finished_at)
+
+        # And the admission lock is actually gone, not just the field.
+        self._make_code("666666")
+        validate_resp = self.client.post(
+            "/api/session/validate", headers=self._station_headers(),
+            json={"code": "666666"},
+        )
+        self.assertTrue(validate_resp.get_json()["ok"])
+
+    def test_matching_version_without_prior_target_is_a_no_op(self):
+        # No desired_client_version was ever queued for this station —
+        # reporting the same version as the channel-wide target must not
+        # touch client_version/client_update_status at all.
+        Setting.set("client_updates_enabled", "true")
+        Setting.set("client_stable_version", "0.4.0")
+
+        resp = self.client.post(
+            "/api/station/update-check", headers=self._station_headers(),
+            json={"current_version": "0.4.0", "channel": "stable"},
+        )
+        self.assertFalse(resp.get_json()["update_available"])
+
+        self._refresh_station()
+        self.assertIsNone(self.station.desired_client_version)
+        self.assertIsNone(self.station.client_update_status)
 
 
 if __name__ == "__main__":
