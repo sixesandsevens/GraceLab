@@ -728,8 +728,9 @@ class GraceLabClient:
                 log.warning("Could not clear guest logout flag %s: %s", flag, e)
 
     def _write_guest_timer_file(self):
-        if self._is_open_session:
-            return
+        # Open-mode sessions still have a hard expiration, so the guest must
+        # still see the countdown timer — only the extension/warning workflow
+        # is suppressed for them (see _tick). Do not skip the file for them.
         import datetime
         if not self._expires_at:
             return
@@ -738,6 +739,7 @@ class GraceLabClient:
                 "expires_at": datetime.datetime.utcfromtimestamp(
                     self._expires_at).strftime("%Y-%m-%dT%H:%M:%S"),
                 "warning_seconds": self._warning_seconds,
+                "open_mode": self._is_open_session,
             }
             tmp = GUEST_TIMER_FILE + ".tmp"
             with open(tmp, "w") as f:
@@ -1184,14 +1186,51 @@ class GraceLabClient:
         except Exception:
             pass
 
-    def _switch_to_gracelab(self):
+    def _switch_to_gracelab(self, timeout=5, context=""):
+        """
+        Switch the physical display to the gracelab graphical session.
+        Returns True only if dm-tool actually reported success — callers
+        must not log or assume a successful switch just because this
+        function was called.
+        """
+        tag = f" ({context})" if context else ""
+        env = dict(os.environ)
+        env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
         try:
-            env = dict(os.environ)
-            env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
-            subprocess.run(["dm-tool", "switch-to-user", "gracelab"],
-                           env=env, timeout=3, capture_output=True)
-        except Exception:
-            pass
+            result = subprocess.run(
+                ["dm-tool", "switch-to-user", "gracelab"],
+                env=env, timeout=timeout, capture_output=True, text=True,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning("dm-tool switch-to-user gracelab timed out after %ss%s.", timeout, tag)
+            return False
+        except Exception as e:
+            log.warning("dm-tool switch-to-user gracelab failed to run%s: %s", tag, e)
+            return False
+
+        if result.returncode != 0:
+            log.warning(
+                "dm-tool switch-to-user gracelab exited %s%s. stdout=%s stderr=%s",
+                result.returncode, tag,
+                (result.stdout or "").strip(), (result.stderr or "").strip(),
+            )
+            return False
+
+        log.info("Switched display to gracelab%s.", tag)
+        return True
+
+    def _switch_to_gracelab_with_retries(self, attempts=3, delay=1.5, context=""):
+        """Bounded retry loop for returning the display to gracelab. Used after
+        guestlab termination when the pre-termination switch failed — total
+        worst-case time is kept short so teardown never hangs waiting on this."""
+        for attempt in range(1, attempts + 1):
+            attempt_context = f"{context} attempt {attempt}/{attempts}" if context else \
+                f"attempt {attempt}/{attempts}"
+            if self._switch_to_gracelab(context=attempt_context):
+                return True
+            if attempt < attempts:
+                time.sleep(delay)
+        return False
 
     def _run_script(self, script_path, label, timeout=120, failure_event="client_error"):
         """
@@ -1255,25 +1294,59 @@ class GraceLabClient:
 
     def _end_and_reset(self, reason):
         sid = self._session_id
+        log.info("Session %s: teardown started (reason=%s).", sid, reason)
+
+        # The countdown overlay is guestlab's problem to keep displaying, not
+        # ours — stop it immediately so it can't linger past expiration while
+        # the rest of teardown runs.
+        self._clear_guest_timer_file()
+
+        # Try to switch the physical display to gracelab BEFORE tearing down
+        # guestlab. dm-tool/LightDM can refuse a switch while a session is
+        # actively dying, and if that first attempt only happens after
+        # guestlab is gone, a failure leaves nobody owning the seat — which is
+        # how guests were ending up on a blank screen with only a TTY escape
+        # available. Attempting the switch first gives the common case (it
+        # succeeds) a visible kiosk the instant guestlab disappears. If it
+        # fails, we do NOT wait around here: the session time limit must
+        # still be enforced, so we fall through to termination regardless and
+        # retry the switch again afterward.
+        log.info("Session %s: pre-termination switch to gracelab attempted.", sid)
+        pre_switch_ok = self._switch_to_gracelab(context="pre-termination")
+        log.info(
+            "Session %s: pre-termination switch %s.",
+            sid, "succeeded" if pre_switch_ok else "failed",
+        )
+
         self._clear_session_state()
 
         # Run end_script before reporting to server so a failure marks
         # the station needs_attention rather than silently returning available.
         end_script = self.cfg.get("paths", "end_script")
+        log.info("Session %s: guest termination script starting.", sid)
         end_ok = self._run_script(end_script, "end",
                                   failure_event="end_script_failed")
+        log.info(
+            "Session %s: guest termination script %s.",
+            sid, "completed" if end_ok else "failed",
+        )
 
-        # Switch display back to gracelab now that guestlab is dead.
-        # Called from the client process (runs as gracelab in gracelab's session)
-        # so LightDM honours it after whatever the greeter did on session death.
-        env = dict(os.environ)
-        env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
-        try:
-            subprocess.run(["dm-tool", "switch-to-user", "gracelab"],
-                           env=env, timeout=5, capture_output=True)
-            log.info("Switched display back to gracelab.")
-        except Exception as e:
-            log.warning("dm-tool switch-to-user gracelab failed: %s", e)
+        display_ok = pre_switch_ok
+        if not display_ok:
+            log.warning(
+                "Session %s: retrying display switch to gracelab after guest termination.",
+                sid,
+            )
+            display_ok = self._switch_to_gracelab_with_retries(context="post-termination")
+
+        if display_ok:
+            log.info("Session %s: display recovery to gracelab confirmed.", sid)
+        else:
+            log.error(
+                "Session %s: display recovery to gracelab failed after retries — "
+                "station may be showing a blank screen.",
+                sid,
+            )
 
         try:
             self.api.end(sid, reason)
@@ -1286,6 +1359,7 @@ class GraceLabClient:
             ))
             return
 
+        log.info("Session %s: reset starting.", sid)
         self.root.after(0, self._show_resetting)
         self._run_reset(sid)
 
@@ -1306,6 +1380,7 @@ class GraceLabClient:
                                "Guest profile reset completed.")
             except APIError:
                 pass
+            log.info("Session %s: reset completed — returning to idle.", sid)
             self._session_id = None
             self._expires_at = None
             self.root.after(0, self._show_idle)
