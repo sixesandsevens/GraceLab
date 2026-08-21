@@ -7,9 +7,11 @@
 # accept arguments, so the sudoers grant for this script cannot be abused to
 # run anything but a plain reboot.
 #
-# The client reports the command complete BEFORE invoking this script (see
-# gracelab_client.py's _handle_reboot_command) — once systemctl reboot runs
-# there is no reliable way to report anything further.
+# --no-block: queue the shutdown job over D-Bus and return immediately,
+# rather than blocking until the machine actually goes down. This is what
+# lets the client (see gracelab_client.py's _handle_reboot_command) get a
+# real, timely exit code to report "complete" or "failed" on — reporting
+# complete only AFTER this call succeeds, never before.
 
 set -euo pipefail
 
@@ -18,4 +20,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 gl_log INFO "reboot_station: reboot invoked"
-systemctl reboot
+systemctl reboot --no-block

@@ -388,5 +388,40 @@ class StationCommandChannelTests(MaintenanceTestCase):
         self.assertNotEqual(self.station.pending_command_id, first_id)
 
 
+class ReliabilityEventEscalationTests(MaintenanceTestCase):
+    """Review round 2, fixes 1 & 2 (server side): the two new event types
+    the client reports when it can't verify the admin override, or when a
+    requested reboot silently didn't happen, must both be accepted and both
+    escalate the station to needs_attention — unlike the softer
+    maintenance_enter_failed (display-switch-only failure), which is logged
+    but does not escalate."""
+
+    def _event(self, event_type, message=""):
+        return self.client.post(
+            "/api/session/event", headers=self._station_headers(),
+            json={"event_type": event_type, "message": message},
+        )
+
+    def test_maintenance_override_failed_escalates_to_needs_attention(self):
+        resp = self._event("maintenance_override_failed", "sentinel not active")
+        self.assertTrue(resp.get_json()["ok"])
+        self._refresh_station()
+        self.assertEqual(self.station.status, "needs_attention")
+
+    def test_reboot_failed_escalates_to_needs_attention(self):
+        resp = self._event("reboot_failed", "helper missing")
+        self.assertTrue(resp.get_json()["ok"])
+        self._refresh_station()
+        self.assertEqual(self.station.status, "needs_attention")
+
+    def test_maintenance_enter_failed_does_not_escalate(self):
+        """Confirms the softer event type's existing non-fatal behavior is
+        unchanged by adding the two new fatal ones."""
+        resp = self._event("maintenance_enter_failed", "display switch failed")
+        self.assertTrue(resp.get_json()["ok"])
+        self._refresh_station()
+        self.assertEqual(self.station.status, "available")
+
+
 if __name__ == "__main__":
     unittest.main()

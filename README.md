@@ -367,3 +367,4 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 | 0.1.0 | Initial release: session codes, kiosk client, station heartbeat |
 | 0.2.0 | Extend-by-code, orphan recovery, session persistence, `dm-tool` switching, audit log, settings page, token rotation, rate limiting, Open Lab mode, Terms of Service |
 | 0.3.0 | Grace Updater (self-hosted OTA), `run-client.sh` restart wrapper, `do-install.sh` sudoers helper, `package-client.sh`, Firefox policies, approved app installer, wallpaper, delete station |
+| 0.4.0 | Open-mode session timer fix; safer session teardown with verified/retried `dm-tool` display switching; update-lock session admission (a queued update blocks new sessions until installed, with safe reconciliation of lost reports and mismatched versions); station maintenance mode with a verified admin override and automatic lease refresh; remote GraceLab reset and reboot via a replay-safe one-shot command channel |

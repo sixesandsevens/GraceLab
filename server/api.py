@@ -625,6 +625,7 @@ def session_event(station):
         "profile_reset_failed", "client_heartbeat", "client_error",
         "start_script_failed", "end_script_failed", "reset_script_failed",
         "maintenance_enter_failed", "maintenance_exit_failed",
+        "maintenance_override_failed", "reboot_failed",
     }
     if event_type not in allowed_event_types:
         event_type = "client_error"
@@ -637,12 +638,18 @@ def session_event(station):
     _log_event(session_id, station.id, event_type, message)
 
     # maintenance_enter_failed is logged for visibility but is not fatal —
-    # the display switch itself may have failed while the (more important)
-    # admission lock still holds, so the station isn't actually unsafe. See
-    # gracelab_client.py's _do_enter_maintenance for the full reasoning.
+    # it covers only a failed *display switch* during entry, while the
+    # (more important) admission lock and admin override already hold, so
+    # the station isn't actually unsafe. maintenance_override_failed is the
+    # stricter sibling — the override itself couldn't be verified (entry) or
+    # verified cleared (exit) — and reboot_failed means an explicitly
+    # requested reboot silently didn't happen (e.g. sudoers not yet
+    # reprovisioned after an OTA update); both are fatal. See
+    # gracelab_client.py's _do_enter_maintenance/_do_exit_maintenance.
     station_fatal = {
         "start_script_failed", "end_script_failed", "reset_script_failed",
         "profile_reset_failed", "maintenance_exit_failed",
+        "maintenance_override_failed", "reboot_failed",
     }
     if event_type in station_fatal:
         station.status = "needs_attention"

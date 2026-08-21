@@ -44,6 +44,8 @@ def _make_client(**attrs):
     client._desired_client_version = None
     client._update_lock_screen_status = None
     client._maintenance_requested = False
+    client._maintenance_confirmed = False
+    client._last_override_refresh = 0
     client._last_handled_command_id = None
     client._timer_job = None
     client._sync_job = None

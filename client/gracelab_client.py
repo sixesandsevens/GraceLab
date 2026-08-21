@@ -44,7 +44,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.3.26"
+CLIENT_VERSION = "0.4.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -239,6 +239,12 @@ class GraceLabClient:
     UPDATE_FAILED   = "UPDATE_FAILED"
     MAINTENANCE_ACTIVE = "MAINTENANCE_ACTIVE"
 
+    # How often to renew the admin-override sentinel's freshness while
+    # confirmed-active maintenance is ongoing — comfortably under
+    # _admin_override_active's 4-hour expiry, and never on every heartbeat
+    # (that would mean a sudo call every ~30s).
+    ADMIN_OVERRIDE_REFRESH_SECONDS = 45 * 60
+
     def __init__(self, root, cfg):
         self.root = root
         self.cfg = cfg
@@ -276,13 +282,23 @@ class GraceLabClient:
         self._update_lock_screen_status = None   # status the update screen currently reflects
 
         # Maintenance-mode state (Patch C). _maintenance_requested mirrors the
-        # server's authoritative intent; "are we actually in maintenance
-        # right now" is just self._state == MAINTENANCE_ACTIVE, no separate
-        # flag needed. _last_handled_command_id guards the one-shot
-        # reset/reboot command channel against re-dispatching the same
-        # command while it's still being handled or before the server has
-        # cleared it (see _dispatch_station_command).
+        # server's authoritative intent — self._state == MAINTENANCE_ACTIVE
+        # alone is NOT proof maintenance actually took: the override/display
+        # switch can fail after we've shown the screen. _maintenance_confirmed
+        # is the stricter "we verified the admin override sentinel is active
+        # AND the display switch succeeded" flag; only this is reported to
+        # the server as maintenance_active (see _send_heartbeat / fix for
+        # review round 2 — do not derive it from self._state).
+        # _last_override_refresh paces the periodic lease-renewal of the
+        # admin-override sentinel so a maintenance session outlasting its
+        # 4-hour freshness window doesn't let watchdog/lockdown resume.
+        # _last_handled_command_id guards the one-shot reset/reboot command
+        # channel against re-dispatching the same command while it's still
+        # being handled or before the server has cleared it (see
+        # _dispatch_station_command).
         self._maintenance_requested = False
+        self._maintenance_confirmed = False
+        self._last_override_refresh = 0
         self._last_handled_command_id = None
 
         self._build_ui()
@@ -1501,17 +1517,33 @@ class GraceLabClient:
         return self._dm_tool_switch(["switch-to-greeter"], timeout=timeout,
                                     context=context or "greeter")
 
-    def _run_script(self, script_path, label, timeout=120, failure_event="client_error"):
+    def _run_script(self, script_path, label, timeout=120, failure_event="client_error",
+                    required=False):
         """
         Run a lifecycle script. Returns True on success, False on failure.
         Reports failure_event to the server on failure so the dashboard can
-        mark the station needs_attention. Does nothing if path is empty.
+        mark the station needs_attention. Does nothing (returns True) if
+        path is empty or the file doesn't exist — UNLESS required=True, in
+        which case a missing/unconfigured script IS the failure. Default
+        False preserves the existing optional-script semantics used by
+        start/end/reset/override scripts; required=True is for scripts whose
+        absence must never look like a silent no-op success (currently just
+        reboot — "no reboot script configured" must not be reported as a
+        completed reboot).
 
         script_path may be a plain path or a command line (e.g. "sudo /path/script.sh").
         Parsed with shlex so sudoers entries work without shell=True.
         """
         import shlex
         if not script_path:
+            if required:
+                msg = f"{label} script not configured but is required."
+                log.error("%s", msg)
+                try:
+                    self.api.event(self._session_id, failure_event, msg)
+                except APIError:
+                    pass
+                return False
             log.info("No %s script configured — skipping.", label)
             return True
 
@@ -1520,6 +1552,14 @@ class GraceLabClient:
         file_to_check = cmd[1] if executable == "sudo" and len(cmd) > 1 else executable
 
         if not os.path.isfile(file_to_check):
+            if required:
+                msg = f"{label} script not found: {file_to_check} — required but missing."
+                log.error("%s", msg)
+                try:
+                    self.api.event(self._session_id, failure_event, msg)
+                except APIError:
+                    pass
+                return False
             log.warning("%s script not found: %s — skipping.", label, file_to_check)
             return True
 
@@ -1689,8 +1729,12 @@ class GraceLabClient:
             self.SESSION_ACTIVE, self.SESSION_WARNING, self.SESSION_STARTING
         ) else "available"
         try:
+            # maintenance_active reports _maintenance_confirmed, NOT raw
+            # state — MAINTENANCE_ACTIVE is entered before the override/
+            # display switch is verified, so the state alone would let a
+            # failed entry falsely claim a healthy maintenance session.
             resp = self.api.heartbeat(status, self._session_id,
-                                      maintenance_active=(self._state == self.MAINTENANCE_ACTIVE))
+                                      maintenance_active=self._maintenance_confirmed)
             station_status = resp.get("station_status") if resp else None
             if resp:
                 # Record the update/maintenance locks on every heartbeat
@@ -1742,7 +1786,17 @@ class GraceLabClient:
                 elif not self._maintenance_requested:
                     log.info("Maintenance exit requested by server — returning to GraceLab.")
                     self.root.after(0, self._exit_maintenance)
-                # else: still wanted — heartbeat just keeps the state fresh.
+                elif (
+                    self._maintenance_confirmed
+                    and time.time() - self._last_override_refresh >= self.ADMIN_OVERRIDE_REFRESH_SECONDS
+                ):
+                    # Lease renewal for a legitimately long maintenance
+                    # session — only while already confirmed (this is not an
+                    # entry retry), and paced well under the 4h sentinel
+                    # expiry so it never runs on every heartbeat.
+                    threading.Thread(target=self._refresh_admin_override, daemon=True).start()
+                # else: still wanted, either not yet confirmed or refresh not
+                # due yet — heartbeat just keeps the state fresh.
             elif self._state in (self.UPDATE_PENDING, self.UPDATE_FAILED):
                 # Operational station status still takes priority over a
                 # cheerful update screen, and a completed/cancelled update
@@ -1929,25 +1983,63 @@ class GraceLabClient:
         threading.Thread(target=self._do_enter_maintenance, daemon=True).start()
 
     def _do_enter_maintenance(self):
+        """
+        Two independent things must both be verified — not merely invoked —
+        before maintenance is considered confirmed: the admin-override
+        sentinel actually exists on disk (enable_admin_override.sh can
+        report success via _run_script's returncode check while still
+        failing to leave a usable file, e.g. sudoers not yet reprovisioned
+        after an OTA update shipped the script but not the grant), and the
+        display switch itself succeeded. Only full success sets
+        _maintenance_confirmed, which is what heartbeat reports as
+        maintenance_active — never derived from self._state alone.
+        """
+        self._maintenance_confirmed = False
         log.info("Entering maintenance mode.")
-        self._enable_admin_override()
+
+        override_ok = self._enable_admin_override()
+        if override_ok:
+            override_ok = self._admin_override_active()
+            if not override_ok:
+                log.error("enable_admin_override.sh reported success but the override "
+                         "sentinel is not active.")
+
+        if not override_ok:
+            log.error("Maintenance entry failed: admin override could not be verified "
+                     "active — watchdog/lockdown enforcement may still be running.")
+            try:
+                self.api.event(None, "maintenance_override_failed",
+                               "Admin override could not be verified active.")
+            except APIError:
+                pass
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Could not enter maintenance mode safely. Please ask staff for help."
+            ))
+            return
+
+        log.info("Admin override verified active.")
+        self._last_override_refresh = time.time()
+
         log.info("Maintenance: switching display to the admin session.")
         switch_ok = self._switch_to_admin_session(context="enter-maintenance")
         if switch_ok:
-            log.info("Maintenance: display switch succeeded — maintenance active.")
-        else:
-            log.error("Maintenance: display switch failed — station may still be showing "
-                     "GraceLab; the admin override remains enabled so watchdog/lockdown "
-                     "won't fight a manual recovery attempt (Ctrl+Alt+Fx / the greeter).")
-            try:
-                self.api.event(None, "maintenance_enter_failed",
-                               "Display switch to admin session failed.")
-            except APIError:
-                pass
-        # State stays MAINTENANCE_ACTIVE either way: the admission lock and
-        # the override are the safety-critical parts of "entering
-        # maintenance," and both already hold regardless of whether the
-        # display switch itself succeeded.
+            log.info("Maintenance: display switch succeeded — maintenance confirmed active.")
+            self._maintenance_confirmed = True
+            return
+
+        log.error("Maintenance: display switch failed — station may still be showing "
+                 "GraceLab; the admin override is active so watchdog/lockdown won't "
+                 "fight a manual recovery attempt (Ctrl+Alt+Fx / the greeter). Admission "
+                 "stays locked via maintenance_requested, but maintenance is not reported "
+                 "healthy to the server until this resolves.")
+        try:
+            self.api.event(None, "maintenance_enter_failed",
+                           "Display switch to admin session failed.")
+        except APIError:
+            pass
+        # Deliberately not needs_attention here: the override succeeded, so
+        # the admin has a real path to recover manually, and the admission
+        # lock already holds regardless of _maintenance_confirmed.
 
     def _exit_maintenance(self):
         """
@@ -1963,13 +2055,29 @@ class GraceLabClient:
         threading.Thread(target=self._do_exit_maintenance, daemon=True).start()
 
     def _do_exit_maintenance(self):
+        """
+        maintenance_requested is deliberately NOT cleared until full success
+        (or until the specific "guest cleanup only" failure branch, which
+        has an existing, independent needs_attention escalation path via
+        end_script_failed/reset_script_failed — see below). If the display
+        switch fails, or the override can't be verified disabled, clearing
+        the lock early would let a new guest session start while the seat
+        might still be showing the wrong session or watchdog/lockdown might
+        still be suppressed — either one is worse than staying locked.
+        """
+        self._maintenance_confirmed = False
         log.info("Maintenance: switching display back to gracelab.")
         switch_ok = self._switch_to_gracelab(context="exit-maintenance")
         if not switch_ok:
             log.warning("Maintenance: display switch to gracelab failed — retrying.")
             switch_ok = self._switch_to_gracelab_with_retries(context="exit-maintenance-retry")
 
-        self._disable_admin_override()
+        disable_ok = self._disable_admin_override()
+        if disable_ok:
+            disable_ok = not self._admin_override_active()
+            if not disable_ok:
+                log.error("disable_admin_override.sh reported success but the override "
+                         "sentinel is still active.")
 
         # Clear any guestlab residue and reset the guest home, mirroring
         # normal session teardown — an admin may have left guestlab logged
@@ -1980,8 +2088,6 @@ class GraceLabClient:
         if end_ok:
             reset_script = self.cfg.get("paths", "reset_script")
             reset_ok = self._run_script(reset_script, "reset", failure_event="reset_script_failed")
-
-        self._maintenance_requested = False
 
         if not switch_ok:
             log.error("Maintenance exit: display recovery to gracelab failed after retries.")
@@ -1996,13 +2102,30 @@ class GraceLabClient:
             ))
             return
 
+        if not disable_ok:
+            log.error("Maintenance exit: admin override could not be verified disabled — "
+                     "refusing to return the station to guest service while watchdog/"
+                     "lockdown enforcement might still be suppressed.")
+            try:
+                self.api.event(None, "maintenance_override_failed",
+                               "Admin override could not be verified disabled.")
+            except APIError:
+                pass
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Could not safely confirm maintenance mode was fully exited. "
+                "Please ask staff for help."
+            ))
+            return
+
         if not (end_ok and reset_ok):
             log.error("Maintenance exit: guest cleanup failed.")
+            self._maintenance_requested = False
             self.root.after(0, lambda: self._show_needs_attention(
                 "Maintenance cleanup failed. Please ask staff for help."
             ))
             return
 
+        self._maintenance_requested = False
         log.info("Maintenance exited successfully.")
         self.root.after(0, self._return_to_available_state)
 
@@ -2031,6 +2154,35 @@ class GraceLabClient:
             self.api.maintenance_exit()
         except APIError as e:
             log.warning("Could not report local maintenance exit to server: %s", e)
+
+    def _refresh_admin_override(self):
+        """
+        Lease renewal for a maintenance session outlasting the admin-override
+        sentinel's 4-hour freshness window (_admin_override_active) — not an
+        entry retry. Only called while already confirmed active (see
+        _send_heartbeat), on a bounded ~45-minute cadence so this never runs
+        on every heartbeat. A failure here does not retry the display switch;
+        it just stops claiming a healthy, confirmed maintenance_active until
+        something re-establishes it (matches the "no silent forever-claim,
+        no aggressive auto-retry loop" balance the rest of this file uses).
+        """
+        self._last_override_refresh = time.time()
+        log.info("Refreshing admin override lease.")
+        ok = self._enable_admin_override()
+        if ok:
+            ok = self._admin_override_active()
+        if ok:
+            log.info("Admin override lease refreshed.")
+            return
+        log.error("Admin override lease refresh failed — no longer reporting maintenance "
+                 "as confirmed healthy. Guest admission remains locked via "
+                 "maintenance_requested.")
+        self._maintenance_confirmed = False
+        try:
+            self.api.event(None, "maintenance_enter_failed",
+                           "Admin override lease refresh failed.")
+        except APIError:
+            pass
 
     # ------------------------------------------------------------------
     # Station command channel (Patch C) — reset_gracelab | reboot
@@ -2096,12 +2248,20 @@ class GraceLabClient:
         """
         Reject outright while a guest session is active — Patch C does not
         implement queue-until-idle for reboot, matching stations.py's own
-        rejection of the request at issue time. Reports "complete" BEFORE
-        actually invoking systemctl reboot: once the machine starts going
-        down there is no reliable way to report afterward, and the server
-        must not keep re-issuing the same reboot after the station comes
-        back up (see api.py's station_command_status — a report only counts
-        if pending_command_id still matches, and complete/failed clears it).
+        rejection of the request at issue time.
+
+        Report "acknowledged" first, then only report "complete" once the
+        privileged helper has actually returned success. reboot_station.sh
+        uses `systemctl reboot --no-block`, which returns immediately after
+        queuing the shutdown (rather than blocking until the machine
+        actually goes down), so we get a real, timely success/failure signal
+        to act on instead of guessing — a false "complete" reported before
+        invocation would let sudoers-not-yet-reprovisioned, a missing
+        helper, or a failed systemctl call all silently clear the server's
+        command with nothing having actually happened.
+
+        required=True: unlike the optional lifecycle scripts, "no reboot
+        script configured" must not be reported as a completed reboot.
         """
         log.info("Reboot command received (id=%s).", command_id)
         if self._state in (self.SESSION_ACTIVE, self.SESSION_WARNING, self.SESSION_STARTING):
@@ -2111,11 +2271,17 @@ class GraceLabClient:
             return
 
         log.info("Reboot command %s acknowledged — station is idle, proceeding.", command_id)
-        self._report_command_status(command_id, "complete")
+        self._report_command_status(command_id, "acknowledged")
+
         reboot_script = self.cfg.get("paths", "reboot_script", fallback="")
-        ok = self._run_script(reboot_script, "reboot", failure_event="client_error")
-        if not ok:
-            log.error("Reboot command %s: reboot script failed to execute.", command_id)
+        ok = self._run_script(reboot_script, "reboot", failure_event="reboot_failed", required=True)
+        if ok:
+            log.info("Reboot command %s: helper invoked successfully — reboot queued.", command_id)
+            self._report_command_status(command_id, "complete")
+        else:
+            log.error("Reboot command %s: reboot helper failed to execute.", command_id)
+            self._report_command_status(command_id, "failed",
+                                        error="Reboot helper failed to execute — see station logs.")
 
     # ------------------------------------------------------------------
     # Misc

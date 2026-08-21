@@ -218,9 +218,12 @@ class HeartbeatMaintenanceTransitionTests(unittest.TestCase):
         client._show_needs_attention.assert_called_once()
         client._exit_maintenance.assert_not_called()
 
-    def test_heartbeat_self_reports_maintenance_active_flag(self):
+    def test_heartbeat_reports_confirmed_maintenance_active(self):
         client = _make_client(_state=MAINTENANCE_ACTIVE, _maintenance_requested=True,
-                              _session_id=None)
+                              _maintenance_confirmed=True, _session_id=None,
+                              # Recent, so this test doesn't also trigger a
+                              # real background refresh thread as a side effect.
+                              _last_override_refresh=gracelab_client.time.time())
         client.api.heartbeat.return_value = _heartbeat_body(maintenance_requested=True)
         client._schedule_heartbeat = MagicMock()
 
@@ -228,6 +231,19 @@ class HeartbeatMaintenanceTransitionTests(unittest.TestCase):
             client._send_heartbeat()
 
         client.api.heartbeat.assert_called_once_with("available", None, maintenance_active=True)
+
+    def test_heartbeat_does_not_report_active_until_confirmed(self):
+        """4. self._state == MAINTENANCE_ACTIVE alone must not be reported
+        as maintenance_active — only _maintenance_confirmed does."""
+        client = _make_client(_state=MAINTENANCE_ACTIVE, _maintenance_requested=True,
+                              _maintenance_confirmed=False, _session_id=None)
+        client.api.heartbeat.return_value = _heartbeat_body(maintenance_requested=True)
+        client._schedule_heartbeat = MagicMock()
+
+        with patch.object(gracelab_client.os.path, "exists", return_value=False):
+            client._send_heartbeat()
+
+        client.api.heartbeat.assert_called_once_with("available", None, maintenance_active=False)
 
     def test_update_pending_state_enters_maintenance_when_requested(self):
         client = _make_client(_state=UPDATE_PENDING, _update_locked=True,
@@ -312,26 +328,82 @@ class EnterMaintenanceTests(unittest.TestCase):
         # for the same instance+function — assertEqual, not assertIs.
         self.assertEqual(mock_thread.call_args.kwargs["target"], client._do_enter_maintenance)
 
-    def test_do_enter_maintenance_enables_override_and_switches_display(self):
+    def test_do_enter_maintenance_confirms_when_override_verified_and_switch_succeeds(self):
         client = _make_client()
         client._enable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=True)
         client._switch_to_admin_session = MagicMock(return_value=True)
 
         client._do_enter_maintenance()
 
         client._enable_admin_override.assert_called_once()
+        client._admin_override_active.assert_called_once()
         client._switch_to_admin_session.assert_called_once()
+        self.assertTrue(client._maintenance_confirmed)
 
-    def test_do_enter_maintenance_survives_display_switch_failure(self):
+    def test_do_enter_maintenance_survives_display_switch_failure_but_not_confirmed(self):
+        """4. Display switch failure must not report a healthy confirmed state,
+        but the override succeeded so this stays short of needs_attention."""
         client = _make_client()
         client._enable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=True)
         client._switch_to_admin_session = MagicMock(return_value=False)
         client.api.event = MagicMock()
+        client._show_needs_attention = MagicMock()
 
         client._do_enter_maintenance()  # must not raise
 
+        self.assertFalse(client._maintenance_confirmed)
         client.api.event.assert_called_once()
         self.assertEqual(client.api.event.call_args.args[1], "maintenance_enter_failed")
+        client._show_needs_attention.assert_not_called()
+
+    def test_do_enter_maintenance_fails_safe_when_helper_reports_ok_but_sentinel_missing(self):
+        """2. The helper reporting success is not proof — the sentinel must
+        be independently verified. A mismatch must not be treated as entered."""
+        client = _make_client()
+        client._enable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=False)  # sentinel not actually there
+        client._switch_to_admin_session = MagicMock()
+        client.api.event = MagicMock()
+
+        client._do_enter_maintenance()
+
+        client._switch_to_admin_session.assert_not_called()
+        self.assertFalse(client._maintenance_confirmed)
+        client.api.event.assert_called_once()
+        self.assertEqual(client.api.event.call_args.args[1], "maintenance_override_failed")
+
+    def test_do_enter_maintenance_fails_safe_when_helper_script_itself_fails(self):
+        """2. Missing/failed sudo helper (e.g. sudoers not reprovisioned yet)
+        must not be treated as entered maintenance."""
+        client = _make_client()
+        client._enable_admin_override = MagicMock(return_value=False)
+        client._admin_override_active = MagicMock(return_value=False)
+        client._switch_to_admin_session = MagicMock()
+        client.api.event = MagicMock()
+
+        client._do_enter_maintenance()
+
+        client._switch_to_admin_session.assert_not_called()
+        self.assertFalse(client._maintenance_confirmed)
+        self.assertEqual(client.api.event.call_args.args[1], "maintenance_override_failed")
+
+    def test_do_enter_maintenance_override_failure_shows_needs_attention_and_keeps_lock(self):
+        client = _make_client(_maintenance_requested=True)
+        client._enable_admin_override = MagicMock(return_value=False)
+        client._admin_override_active = MagicMock(return_value=False)
+        client.api.event = MagicMock()
+        client._show_needs_attention = MagicMock()
+
+        client._do_enter_maintenance()
+
+        client.root.after.assert_called_once()
+        _delay, callback = client.root.after.call_args[0]
+        callback()
+        client._show_needs_attention.assert_called_once()
+        # Admission stays locked regardless of the failure.
+        self.assertTrue(client._maintenance_requested)
 
 
 class ExitMaintenanceTests(unittest.TestCase):
@@ -353,10 +425,11 @@ class ExitMaintenanceTests(unittest.TestCase):
         self.assertEqual(mock_thread.call_args.kwargs["target"], client._do_exit_maintenance)
 
     def test_do_exit_maintenance_success_returns_to_available_state(self):
-        client = _make_client(_maintenance_requested=True)
+        client = _make_client(_maintenance_requested=True, _maintenance_confirmed=True)
         client._switch_to_gracelab = MagicMock(return_value=True)
         client._switch_to_gracelab_with_retries = MagicMock()
         client._disable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=False)  # confirmed cleared
         client._run_script = MagicMock(return_value=True)
         client._show_needs_attention = MagicMock()
 
@@ -364,7 +437,9 @@ class ExitMaintenanceTests(unittest.TestCase):
 
         client._switch_to_gracelab_with_retries.assert_not_called()
         client._disable_admin_override.assert_called_once()
+        client._admin_override_active.assert_called_once()
         self.assertFalse(client._maintenance_requested)
+        self.assertFalse(client._maintenance_confirmed)
         client.root.after.assert_called_once()
         _delay, callback = client.root.after.call_args[0]
         self.assertEqual(callback, client._return_to_available_state)
@@ -375,17 +450,19 @@ class ExitMaintenanceTests(unittest.TestCase):
         client._switch_to_gracelab = MagicMock(return_value=False)
         client._switch_to_gracelab_with_retries = MagicMock(return_value=True)
         client._disable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=False)
         client._run_script = MagicMock(return_value=True)
 
         client._do_exit_maintenance()
 
         client._switch_to_gracelab_with_retries.assert_called_once()
 
-    def test_do_exit_maintenance_switch_failure_shows_needs_attention(self):
-        client = _make_client()
+    def test_do_exit_maintenance_switch_failure_shows_needs_attention_keeps_lock(self):
+        client = _make_client(_maintenance_requested=True)
         client._switch_to_gracelab = MagicMock(return_value=False)
         client._switch_to_gracelab_with_retries = MagicMock(return_value=False)
         client._disable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=False)
         client._run_script = MagicMock(return_value=True)
         client._show_needs_attention = MagicMock()
         client.api.event = MagicMock()
@@ -396,11 +473,52 @@ class ExitMaintenanceTests(unittest.TestCase):
         _delay, callback = client.root.after.call_args[0]
         callback()
         client._show_needs_attention.assert_called_once()
+        # Do not return the station to guest service on a failed exit.
+        self.assertTrue(client._maintenance_requested)
 
-    def test_do_exit_maintenance_guest_cleanup_failure_shows_needs_attention(self):
-        client = _make_client()
+    def test_do_exit_maintenance_override_still_active_shows_needs_attention_keeps_lock(self):
+        """2. If the override can't be verified disabled, exit must be
+        treated as failed and the station must not return to guest service."""
+        client = _make_client(_maintenance_requested=True)
         client._switch_to_gracelab = MagicMock(return_value=True)
         client._disable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=True)  # still active!
+        client._run_script = MagicMock(return_value=True)
+        client._show_needs_attention = MagicMock()
+        client.api.event = MagicMock()
+
+        client._do_exit_maintenance()
+
+        client.root.after.assert_called_once()
+        _delay, callback = client.root.after.call_args[0]
+        callback()
+        client._show_needs_attention.assert_called_once()
+        self.assertTrue(client._maintenance_requested)
+        self.assertEqual(client.api.event.call_args.args[1], "maintenance_override_failed")
+
+    def test_do_exit_maintenance_disable_script_failure_treated_as_override_still_active(self):
+        client = _make_client(_maintenance_requested=True)
+        client._switch_to_gracelab = MagicMock(return_value=True)
+        client._disable_admin_override = MagicMock(return_value=False)
+        client._admin_override_active = MagicMock(return_value=True)
+        client._run_script = MagicMock(return_value=True)
+        client._show_needs_attention = MagicMock()
+
+        client._do_exit_maintenance()
+
+        _delay, callback = client.root.after.call_args[0]
+        callback()
+        client._show_needs_attention.assert_called_once()
+        self.assertTrue(client._maintenance_requested)
+
+    def test_do_exit_maintenance_guest_cleanup_failure_shows_needs_attention_clears_lock(self):
+        """Override+display already confirmed fine here — this degrades to
+        the same needs_attention path a normal reset-script failure uses,
+        so the lock clears (mirrors _run_reset's existing behavior)."""
+        client = _make_client(_maintenance_requested=True)
+        client._switch_to_gracelab = MagicMock(return_value=True)
+        client._disable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=False)
         client._run_script = MagicMock(return_value=False)  # end_script fails
         client._show_needs_attention = MagicMock()
 
@@ -410,6 +528,7 @@ class ExitMaintenanceTests(unittest.TestCase):
         _delay, callback = client.root.after.call_args[0]
         callback()
         client._show_needs_attention.assert_called_once()
+        self.assertFalse(client._maintenance_requested)
 
 
 class LocalMaintenanceExitRequestTests(unittest.TestCase):
@@ -538,7 +657,9 @@ class HandleRebootCommandTests(unittest.TestCase):
             "cmd-8", "failed", "Rejected: a guest session is currently active.")
         client._run_script.assert_not_called()
 
-    def test_reboot_reports_complete_before_invoking_script(self):
+    def test_reboot_acknowledges_before_invoking_helper(self):
+        """1. No false 'complete' before the helper is actually invoked —
+        only 'acknowledged' is reported first."""
         client = _make_client(_state=IDLE)
         call_order = []
         client.api.command_status = MagicMock(
@@ -548,8 +669,208 @@ class HandleRebootCommandTests(unittest.TestCase):
 
         client._handle_reboot_command("cmd-9")
 
-        self.assertEqual(call_order[0], ("report", ("cmd-9", "complete", None)))
+        self.assertEqual(call_order[0], ("report", ("cmd-9", "acknowledged", None)))
         self.assertEqual(call_order[1], ("script",))
+        self.assertEqual(call_order[2], ("report", ("cmd-9", "complete", None)))
+
+    def test_reboot_helper_success_reports_complete(self):
+        client = _make_client(_state=IDLE)
+        client._run_script = MagicMock(return_value=True)
+
+        client._handle_reboot_command("cmd-10")
+
+        calls = [c.args for c in client.api.command_status.call_args_list]
+        self.assertIn(("cmd-10", "acknowledged", None), calls)
+        self.assertIn(("cmd-10", "complete", None), calls)
+        self.assertNotIn(("cmd-10", "failed"), [c[:2] for c in calls])
+
+    def test_reboot_helper_failure_reports_failed_not_complete(self):
+        """1. A helper that runs but fails must report 'failed', never a
+        false 'complete'."""
+        client = _make_client(_state=IDLE)
+        client._run_script = MagicMock(return_value=False)
+
+        client._handle_reboot_command("cmd-11")
+
+        calls = [c.args for c in client.api.command_status.call_args_list]
+        self.assertIn(("cmd-11", "acknowledged", None), calls)
+        self.assertTrue(any(c[0] == "cmd-11" and c[1] == "failed" for c in calls))
+        self.assertNotIn(("cmd-11", "complete", None), calls)
+
+    def test_reboot_missing_helper_reports_failed_not_complete(self):
+        """1. _run_script's default 'missing script = skip = success'
+        semantics must NOT apply to reboot — required=True must be passed."""
+        client = _make_client(_state=IDLE)
+        client.cfg.get.return_value = ""  # no reboot_script configured
+
+        client._handle_reboot_command("cmd-12")
+
+        calls = [c.args for c in client.api.command_status.call_args_list]
+        self.assertTrue(any(c[0] == "cmd-12" and c[1] == "failed" for c in calls))
+        self.assertNotIn(("cmd-12", "complete", None), calls)
+
+    def test_reboot_uses_required_run_script(self):
+        client = _make_client(_state=IDLE)
+        client._run_script = MagicMock(return_value=True)
+
+        client._handle_reboot_command("cmd-13")
+
+        client._run_script.assert_called_once()
+        self.assertTrue(client._run_script.call_args.kwargs.get("required"))
+
+
+class RunScriptRequiredTests(unittest.TestCase):
+    """1. _run_script's required=True: missing/unconfigured must fail, not
+    silently succeed — without changing the default (required=False) used
+    by every other lifecycle script call site."""
+
+    def test_required_false_missing_script_still_skips_successfully(self):
+        client = _make_client()
+        client.cfg.get.return_value = ""
+        self.assertTrue(client._run_script("", "start"))
+
+    def test_required_true_empty_path_fails(self):
+        client = _make_client()
+        client.api.event = MagicMock()
+        ok = client._run_script("", "reboot", failure_event="reboot_failed", required=True)
+        self.assertFalse(ok)
+        client.api.event.assert_called_once()
+        self.assertEqual(client.api.event.call_args.args[1], "reboot_failed")
+
+    def test_required_true_nonexistent_file_fails(self):
+        client = _make_client()
+        client.api.event = MagicMock()
+        ok = client._run_script("/no/such/reboot_station.sh", "reboot",
+                                failure_event="reboot_failed", required=True)
+        self.assertFalse(ok)
+        client.api.event.assert_called_once()
+
+
+class AdminOverrideRefreshTests(unittest.TestCase):
+    """3. Bounded lease refresh for maintenance sessions outlasting the
+    4-hour sentinel window."""
+
+    def test_confirmed_maintenance_refreshes_after_interval_elapses(self):
+        client = _make_client(
+            _state=MAINTENANCE_ACTIVE, _maintenance_requested=True,
+            _maintenance_confirmed=True,
+            _last_override_refresh=gracelab_client.time.time()
+                - gracelab_client.GraceLabClient.ADMIN_OVERRIDE_REFRESH_SECONDS - 1,
+        )
+        client.api.heartbeat.return_value = _heartbeat_body(maintenance_requested=True)
+        client._schedule_heartbeat = MagicMock()
+
+        with patch.object(gracelab_client.os.path, "exists", return_value=False), \
+             patch.object(gracelab_client.threading, "Thread") as mock_thread:
+            client._send_heartbeat()
+
+        mock_thread.assert_called_once()
+        self.assertEqual(mock_thread.call_args.kwargs["target"], client._refresh_admin_override)
+
+    def test_confirmed_maintenance_does_not_refresh_before_interval(self):
+        client = _make_client(
+            _state=MAINTENANCE_ACTIVE, _maintenance_requested=True,
+            _maintenance_confirmed=True,
+            _last_override_refresh=gracelab_client.time.time(),
+        )
+        client.api.heartbeat.return_value = _heartbeat_body(maintenance_requested=True)
+        client._schedule_heartbeat = MagicMock()
+
+        with patch.object(gracelab_client.os.path, "exists", return_value=False), \
+             patch.object(gracelab_client.threading, "Thread") as mock_thread:
+            client._send_heartbeat()
+
+        mock_thread.assert_not_called()
+
+    def test_unconfirmed_maintenance_does_not_refresh(self):
+        """Refresh is a lease *renewal*, not an entry retry — it must not
+        fire before the initial entry has actually been confirmed."""
+        client = _make_client(
+            _state=MAINTENANCE_ACTIVE, _maintenance_requested=True,
+            _maintenance_confirmed=False,
+            _last_override_refresh=0,
+        )
+        client.api.heartbeat.return_value = _heartbeat_body(maintenance_requested=True)
+        client._schedule_heartbeat = MagicMock()
+
+        with patch.object(gracelab_client.os.path, "exists", return_value=False), \
+             patch.object(gracelab_client.threading, "Thread") as mock_thread:
+            client._send_heartbeat()
+
+        mock_thread.assert_not_called()
+
+    def test_idle_state_never_refreshes(self):
+        client = _make_client(
+            _state=IDLE, _maintenance_confirmed=True, _last_override_refresh=0,
+        )
+        client.api.heartbeat.return_value = _heartbeat_body()
+        client._schedule_heartbeat = MagicMock()
+
+        with patch.object(gracelab_client.os.path, "exists", return_value=False), \
+             patch.object(gracelab_client.threading, "Thread") as mock_thread:
+            client._send_heartbeat()
+
+        mock_thread.assert_not_called()
+
+    def test_exiting_maintenance_stops_further_refresh(self):
+        """Once _exit_maintenance has moved state off MAINTENANCE_ACTIVE
+        (e.g. to RESETTING), the heartbeat's refresh branch can't fire."""
+        client = _make_client(
+            _state=gracelab_client.GraceLabClient.RESETTING,
+            _maintenance_requested=False, _maintenance_confirmed=True,
+            _last_override_refresh=0,
+        )
+        client.api.heartbeat.return_value = _heartbeat_body()
+        client._schedule_heartbeat = MagicMock()
+
+        with patch.object(gracelab_client.os.path, "exists", return_value=False), \
+             patch.object(gracelab_client.threading, "Thread") as mock_thread:
+            client._send_heartbeat()
+
+        mock_thread.assert_not_called()
+
+    def test_refresh_success_keeps_confirmed_true(self):
+        client = _make_client(_maintenance_confirmed=True)
+        client._enable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=True)
+
+        client._refresh_admin_override()
+
+        self.assertTrue(client._maintenance_confirmed)
+
+    def test_refresh_updates_last_refresh_timestamp_even_on_failure(self):
+        """Pacing must advance regardless of outcome, or a failing refresh
+        would be retried every single heartbeat instead of on the bounded
+        cadence."""
+        client = _make_client(_maintenance_confirmed=True, _last_override_refresh=0)
+        client._enable_admin_override = MagicMock(return_value=False)
+        client._admin_override_active = MagicMock(return_value=False)
+
+        before = gracelab_client.time.time()
+        client._refresh_admin_override()
+
+        self.assertGreaterEqual(client._last_override_refresh, before)
+
+    def test_refresh_failure_clears_confirmed_and_reports(self):
+        client = _make_client(_maintenance_confirmed=True)
+        client._enable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=False)  # verify fails
+        client.api.event = MagicMock()
+
+        client._refresh_admin_override()
+
+        self.assertFalse(client._maintenance_confirmed)
+        client.api.event.assert_called_once()
+        self.assertEqual(client.api.event.call_args.args[1], "maintenance_enter_failed")
+
+    def test_refresh_helper_failure_clears_confirmed(self):
+        client = _make_client(_maintenance_confirmed=True)
+        client._enable_admin_override = MagicMock(return_value=False)
+        client._admin_override_active = MagicMock(return_value=False)
+
+        client._refresh_admin_override()
+
+        self.assertFalse(client._maintenance_confirmed)
 
 
 if __name__ == "__main__":
