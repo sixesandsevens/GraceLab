@@ -15,11 +15,27 @@ STOP_FLAG="/tmp/gracelab-watchdog-stop"
 LOG="/var/log/gracelab/watchdog.log"
 POLL_INTERVAL=2   # seconds between checks
 
+# Patch C maintenance mode: while this file exists and is fresh, an admin is
+# deliberately using the display, and the watchdog must not fight them by
+# closing whatever window they have focused. Same freshness window as
+# gracelab_client.py's own admin-override check — see
+# enable_admin_override.sh / disable_admin_override.sh for how it's managed.
+ADMIN_OVERRIDE="/run/gracelab-admin-override"
+ADMIN_OVERRIDE_MAX_AGE=14400  # 4 hours
+
 log() {
     local msg
     msg="$(date -Is) [watchdog] $*"
     echo "$msg"
     echo "$msg" >> "$LOG" 2>/dev/null || true
+}
+
+override_active() {
+    local mtime now
+    [[ -f "$ADMIN_OVERRIDE" ]] || return 1
+    mtime=$(stat -c %Y "$ADMIN_OVERRIDE" 2>/dev/null) || return 1
+    now=$(date +%s)
+    (( now - mtime < ADMIN_OVERRIDE_MAX_AGE ))
 }
 
 # Ensure required tools are present
@@ -35,6 +51,11 @@ log "Watchdog started (PID $$). Polling every ${POLL_INTERVAL}s."
 
 while true; do
     [[ -f "$STOP_FLAG" ]] && { log "Stop flag found, exiting."; exit 0; }
+
+    if override_active; then
+        sleep "$POLL_INTERVAL"
+        continue
+    fi
 
     # Get the active (focused) window title
     ACTIVE_ID=$(xdotool getactivewindow 2>/dev/null || true)

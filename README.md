@@ -191,7 +191,8 @@ cd /opt/gracelab/GraceLab
 sudo ./tools/install-client.sh \
   --server-url http://192.168.1.246:5000 \
   --hostname   gracelab-01 \
-  --token      PASTE_TOKEN_HERE
+  --token      PASTE_TOKEN_HERE \
+  --admin-user local-admin-account   # optional, see "Maintenance mode" below
 ```
 
 The installer:
@@ -202,7 +203,9 @@ The installer:
 - Creates `/opt/gracelab-client/current` symlink
 - Writes `/etc/gracelab/client_config.ini`
 - Installs `do-install.sh` to `/opt/gracelab-client/updater/` (root-owned)
-- Writes `/etc/sudoers.d/gracelab-client` (four entries: the three lifecycle scripts + do-install.sh)
+- Writes `/etc/sudoers.d/gracelab-client` (lifecycle scripts, do-install.sh, and the
+  maintenance-mode/reboot helper scripts — see "Maintenance mode" below)
+- Creates the `gracelab-admin` group (local "Return to GraceLab" convenience)
 - Configures LightDM to autologin as `gracelab`
 - Hides `guestlab` from the greeter via AccountsService
 - Writes XFCE kiosk lockdown settings (no panel, blocked shortcuts)
@@ -245,6 +248,25 @@ Open the session detail page and click **End Session**. The kiosk polls the serv
 ### Admin recovery on a stuck station
 
 Press **Escape** on the kiosk screen when it shows `needs_attention` — this exits fullscreen so you can interact with the desktop. Fix the issue, then clear the station status from the dashboard.
+
+### Maintenance mode & remote recovery
+
+The Stations page has four admin actions for local troubleshooting and remote recovery, none of which require physical TTY access:
+
+- **Enter Maintenance** — queues maintenance mode. If the station is idle it switches away almost immediately; if a guest session is active, that session finishes normally first ("Maintenance Pending"), then the station switches away instead of returning to Start Session. New sessions can't start once maintenance is requested, at any point in that flow.
+- **Return to GraceLab** / **Cancel Maintenance Request** — clears the request. If maintenance was already active, the station resets the guest home and returns to normal operation, unless another lock (an out_of_service/needs_attention flag, or a still-pending update) takes over instead.
+- **Reset GraceLab** — force-recovers a stuck station: ends any active session immediately, clears local session state, resets the guest home, and switches the display back to GraceLab. More forceful than Enter Maintenance — it does not wait for a session to end.
+- **Reboot** — queues `systemctl reboot` via a narrowly-scoped sudo helper. Rejected while a guest session is active; the admin action returns a clear error rather than interrupting anyone.
+
+**Where maintenance actually switches to**: if `[maintenance] admin_user` is set in `client_config.ini` (via `--admin-user` at install time, or edited directly), the station switches to that account's graphical session. If unset, or if that account has no session running, it falls back to the LightDM greeter so someone can log in normally. GraceLab never stores or checks that account's password — authentication stays ordinary Linux/LightDM auth.
+
+**Local "Return to GraceLab"**, for the administrator sitting at the console instead of the dashboard:
+```bash
+sudo /opt/gracelab-client/current/scripts/request_maintenance_exit.sh
+```
+Runnable by any account in the `gracelab-admin` group (add one with `usermod -aG gracelab-admin <username>`; `--admin-user` at install time does this automatically if the account already exists). Wire it to a launcher or menu entry in that account's session as you prefer.
+
+Reset/reboot are delivered through a small one-shot command channel (not a general remote-shell mechanism): the admin action stamps a UUID command id on the station, the client picks it up on its next heartbeat, and the server only clears that id once the client reports back — so a stale or duplicated heartbeat can never replay a reboot or reset.
 
 ---
 
@@ -306,9 +328,12 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 ## Security notes
 
 - The `gracelab` user is a normal (non-system) OS account with a locked password. It autologins via the `nopasswdlogin` PAM group.
-- Sudoers grants are limited to four scripts only. No broad `pkill`, `rsync`, `passwd`, or `loginctl` grants.
+- Sudoers grants are limited to specific, narrowly-scoped scripts only (lifecycle hooks, the updater helper, and the maintenance/reboot helpers below) — no broad `pkill`, `rsync`, `passwd`, `loginctl`, or generic `systemctl` grants.
 - All scripts granted via sudoers are root-owned and not writable by `gracelab`, preventing privilege escalation via script modification.
 - The `do-install.sh` updater helper validates its version argument against a semver pattern and ensures the tarball path is inside the `downloads/` directory before extracting.
+- `/run/gracelab-admin-override` (maintenance mode's kiosk-enforcement suppression flag) lives directly under `/run`, not the shared `/run/gracelab/` IPC directory guestlab can also write to — a guest process has no path to create or modify it. Only `enable_admin_override.sh`/`disable_admin_override.sh`, invoked via sudo, can touch it.
+- The local "Return to GraceLab" script (`request_maintenance_exit.sh`) is grantable via sudo to the `gracelab-admin` group rather than a specific username, so provisioning it doesn't require hardcoding a personal account into the installer.
+- Maintenance mode never stores or checks the local administrator's password — it only switches the display toward that account's session or the LightDM greeter; authentication stays ordinary Linux/LightDM auth.
 - Station tokens are hashed with Werkzeug's `generate_password_hash` (bcrypt). Tokens are shown once at registration; if lost, rotate from the Stations page.
 - The admin panel requires the `admin` role. Staff accounts use the `staff` role and cannot access audit logs, settings, or token rotation.
 - Login attempts are rate-limited to 10/minute and 30/hour via Flask-Limiter.
@@ -330,6 +355,8 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 | `/tmp/gracelab-session.json` | Active session state (survives reboot) |
 | `/tmp/gracelab-guest-logout` | IPC flag: guest clicked End Session |
 | `/tmp/gracelab-update-ready` | IPC flag: updater installed new version |
+| `/run/gracelab-admin-override` | Maintenance mode: suppresses watchdog/lockdown enforcement (root-owned, not guest-writable) |
+| `/run/gracelab-maintenance-exit-requested` | Local "Return to GraceLab" request flag (root-owned) |
 
 ---
 

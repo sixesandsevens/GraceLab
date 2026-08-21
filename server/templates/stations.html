@@ -27,7 +27,21 @@
     <tr>
       <td><strong>{{ st.display_name }}</strong></td>
       <td><code>{{ st.hostname }}</code></td>
-      <td><span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span></td>
+      <td>
+        <span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span>
+        {% if st.maintenance_active %}
+          <span class="status-badge status-updating" style="font-size:.7rem;margin-left:.25rem">Maintenance Active</span>
+        {% elif st.maintenance_requested %}
+          <span class="status-badge status-pending" style="font-size:.7rem;margin-left:.25rem">
+            {{ 'Maintenance Pending' if st.current_session_id else 'Entering Maintenance' }}
+          </span>
+        {% endif %}
+        {% if st.pending_command_type and st.pending_command_status not in ('complete', 'failed') %}
+          <span class="status-badge status-updating" style="font-size:.7rem;margin-left:.25rem">
+            {{ 'Resetting…' if st.pending_command_type == 'reset_gracelab' else 'Rebooting…' }}
+          </span>
+        {% endif %}
+      </td>
       <td>
         {% if st.client_version %}
           <code>{{ st.client_version }}</code>
@@ -73,6 +87,38 @@
           <button type="submit" class="btn btn-sm btn-secondary"
             onclick="return confirm('Rotate the token for {{ st.display_name }}? The old token will stop working immediately.')">Rotate Token</button>
         </form>
+        {% set has_pending_command = st.pending_command_type and st.pending_command_status not in ('complete', 'failed') %}
+        {% if st.maintenance_active %}
+        <form method="post" action="{{ url_for('stations.exit_maintenance', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-secondary">Return to GraceLab</button>
+        </form>
+        {% elif st.maintenance_requested %}
+        <form method="post" action="{{ url_for('stations.exit_maintenance', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-secondary">Cancel Maintenance Request</button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('stations.enter_maintenance', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-secondary"
+            onclick="return confirm('Enter maintenance mode on {{ st.display_name }}?{% if st.current_session_id %} The current session will finish normally first.{% endif %}')">Enter Maintenance</button>
+        </form>
+        {% endif %}
+        {% if not has_pending_command %}
+        <form method="post" action="{{ url_for('stations.reset_gracelab', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-secondary"
+            onclick="return confirm('Reset GraceLab on {{ st.display_name }}? Any active session will be ended immediately.')">Reset GraceLab</button>
+        </form>
+        {% if not st.current_session_id %}
+        <form method="post" action="{{ url_for('stations.reboot_station', station_id=st.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-danger"
+            onclick="return confirm('Reboot this station?')">Reboot</button>
+        </form>
+        {% endif %}
+        {% endif %}
         {% if updates_enabled and stable_version %}
           {% if st.desired_client_version %}
           <form method="post" action="{{ url_for('stations.cancel_update', station_id=st.id) }}" style="display:inline">
@@ -94,7 +140,7 @@
           </form>
           {% endif %}
         {% endif %}
-        {% if st.status not in ('in_use', 'available') %}
+        {% if st.status not in ('in_use', 'available') and not st.maintenance_active and not st.maintenance_requested and not has_pending_command %}
         <form method="post" action="{{ url_for('stations.delete_station', station_id=st.id) }}" style="display:inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-danger"

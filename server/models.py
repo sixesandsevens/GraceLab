@@ -56,6 +56,25 @@ class Station(db.Model):
     last_update_finished_at = db.Column(db.DateTime, nullable=True)
     desired_client_version = db.Column(db.String(32), nullable=True)
 
+    # Maintenance mode (Patch C). Independent of `status` — same pattern as
+    # desired_client_version: a station can be "available" while maintenance
+    # or an update lock independently blocks new session admission.
+    # maintenance_requested is server-authoritative admin intent; the client
+    # never sets it. maintenance_active is self-reported by the client via
+    # heartbeat once it has actually switched away to the admin session.
+    maintenance_requested = db.Column(db.Boolean, nullable=True)
+    maintenance_active = db.Column(db.Boolean, nullable=True)
+
+    # One-shot station command channel (reset_gracelab | reboot). Booleans
+    # suffice for maintenance (naturally idempotent), but a destructive
+    # one-shot action needs an identifier so a replayed/duplicated heartbeat
+    # can never re-trigger it — see api.py's station_command_status.
+    pending_command_type = db.Column(db.String(32), nullable=True)
+    pending_command_id = db.Column(db.String(36), nullable=True)
+    pending_command_status = db.Column(db.String(16), nullable=True)
+    pending_command_issued_at = db.Column(db.DateTime, nullable=True)
+    pending_command_error = db.Column(db.Text, nullable=True)
+
     current_session = db.relationship("Session", foreign_keys=[current_session_id])
     events = db.relationship("SessionEvent", back_populates="station", lazy="dynamic")
 

@@ -137,6 +137,12 @@ def heartbeat(station):
     if client_version and isinstance(client_version, str):
         station.client_version = client_version[:32]
 
+    # Self-reported by the client once it has actually switched away to the
+    # admin session — same trust model as client_version above (authenticated
+    # station report, no separate verification). maintenance_requested is
+    # NOT settable here; only the admin dashboard sets that.
+    station.maintenance_active = bool(data.get("maintenance_active", False))
+
     db.session.commit()
 
     # Include active session info so the client can recover after a reboot
@@ -155,6 +161,18 @@ def heartbeat(station):
             ))
             active_open_mode = sess.code_display == "OPEN"
 
+    # One-shot command channel (reset_gracelab | reboot). Only surfaced while
+    # a command is actually outstanding (not yet complete/failed) — this is
+    # what keeps a stale/duplicated heartbeat from re-triggering a completed
+    # command: once the client's completion report clears pending_command_id
+    # server-side, station_command simply stops appearing.
+    station_command = None
+    if station.pending_command_id and station.pending_command_status not in ("complete", "failed"):
+        station_command = {
+            "id": station.pending_command_id,
+            "type": station.pending_command_type,
+        }
+
     return jsonify({
         "ok": True,
         "server_time": _server_time(),
@@ -168,6 +186,11 @@ def heartbeat(station):
         "update_pending": bool(station.desired_client_version),
         "update_status": station.client_update_status,
         "desired_client_version": station.desired_client_version,
+        # Maintenance-mode admission lock (Patch C) — see the maintenance
+        # checks in session_validate/session_start/session_open_start.
+        "maintenance_requested": bool(station.maintenance_requested),
+        "maintenance_active": bool(station.maintenance_active),
+        "station_command": station_command,
     })
 
 
@@ -193,7 +216,72 @@ def station_config(station):
         "update_pending": bool(station.desired_client_version),
         "update_status": station.client_update_status,
         "desired_client_version": station.desired_client_version,
+        "maintenance_requested": bool(station.maintenance_requested),
+        "maintenance_active": bool(station.maintenance_active),
     })
+
+
+@api_bp.route("/station/command-status", methods=["POST"])
+@station_required
+def station_command_status(station):
+    """
+    Client report for the one-shot command channel (reset_gracelab | reboot).
+    Replay-safety hinges on the command_id match below: a stale or duplicate
+    report for a command that has already been cleared (or superseded by a
+    newer one) is accepted-but-ignored rather than resurrecting/corrupting
+    the current pending command.
+    """
+    data = request.get_json(silent=True) or {}
+    command_id = data.get("command_id")
+    status = data.get("status", "")
+    error = data.get("error", "")
+
+    allowed = {"acknowledged", "complete", "failed"}
+    if status not in allowed:
+        return jsonify({"ok": False, "error": "invalid_status"}), 400
+    if not command_id:
+        return jsonify({"ok": False, "error": "missing_command_id"}), 400
+
+    if station.pending_command_id != command_id:
+        return jsonify({"ok": True, "ignored": True})
+
+    if status in ("complete", "failed"):
+        _log_event(
+            None, station.id,
+            "client_error" if status == "failed" else "client_heartbeat",
+            f"Command {station.pending_command_type} ({command_id}) {status}"
+            + (f": {error}" if error else ""),
+        )
+        if status == "failed":
+            station.status = "needs_attention"
+        station.pending_command_type = None
+        station.pending_command_id = None
+        station.pending_command_status = status
+        station.pending_command_error = error or None
+    else:
+        station.pending_command_status = status
+        station.pending_command_error = error or None
+
+    station.last_seen = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@api_bp.route("/station/maintenance-exit", methods=["POST"])
+@station_required
+def station_maintenance_exit(station):
+    """
+    Called by the client itself when a LOCAL "Return to GraceLab" request
+    (see gracelab_client.py's _check_local_maintenance_exit_request) is
+    honored, so the server-authoritative maintenance_requested flag stays in
+    sync with what actually happened at the console. Idempotent — safe to
+    call whether or not maintenance was actually requested.
+    """
+    station.maintenance_requested = False
+    station.last_seen = datetime.now(timezone.utc)
+    _log_event(None, station.id, "client_heartbeat", "Maintenance exit requested locally.")
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 @api_bp.route("/session/validate", methods=["POST"])
@@ -216,9 +304,14 @@ def session_validate(station):
     if station.status == "out_of_service":
         return jsonify({"ok": False, "error": "station_out_of_service"}), 403
 
-    # A queued/active update is a session-admission lock: reject here even if
-    # a stale client UI still shows the code-entry screen (defense in depth
-    # alongside the client-side check).
+    # Maintenance (requested/active) or an outstanding reset/reboot command
+    # is a session-admission lock, checked ahead of the update lock — an
+    # admin actively working the station always takes priority over a queued
+    # update. Reject here even if a stale client UI still shows the
+    # code-entry screen (defense in depth alongside the client-side check).
+    if station.maintenance_requested or station.maintenance_active or station.pending_command_type:
+        return jsonify({"ok": False, "error": "station_maintenance"}), 403
+
     if station.desired_client_version:
         return jsonify({"ok": False, "error": "station_updating"}), 403
 
@@ -266,7 +359,11 @@ def session_start(station):
     if station.status == "out_of_service":
         return jsonify({"ok": False, "error": "station_out_of_service"}), 403
 
-    # See session_validate above — a queued/active update blocks new admission.
+    # See session_validate above — maintenance/pending command and update
+    # locks both block new admission.
+    if station.maintenance_requested or station.maintenance_active or station.pending_command_type:
+        return jsonify({"ok": False, "error": "station_maintenance"}), 403
+
     if station.desired_client_version:
         return jsonify({"ok": False, "error": "station_updating"}), 403
 
@@ -314,8 +411,11 @@ def session_open_start(station):
     if station.status == "out_of_service":
         return jsonify({"ok": False, "error": "station_out_of_service"}), 403
 
-    # See session_validate above — a queued/active update blocks new admission,
-    # including open-mode admission.
+    # See session_validate above — maintenance/pending command and update
+    # locks both block new admission, including open-mode admission.
+    if station.maintenance_requested or station.maintenance_active or station.pending_command_type:
+        return jsonify({"ok": False, "error": "station_maintenance"}), 403
+
     if station.desired_client_version:
         return jsonify({"ok": False, "error": "station_updating"}), 403
 
@@ -524,6 +624,7 @@ def session_event(station):
         "session_warning", "profile_reset_started", "profile_reset_success",
         "profile_reset_failed", "client_heartbeat", "client_error",
         "start_script_failed", "end_script_failed", "reset_script_failed",
+        "maintenance_enter_failed", "maintenance_exit_failed",
     }
     if event_type not in allowed_event_types:
         event_type = "client_error"
@@ -535,9 +636,13 @@ def session_event(station):
 
     _log_event(session_id, station.id, event_type, message)
 
+    # maintenance_enter_failed is logged for visibility but is not fatal —
+    # the display switch itself may have failed while the (more important)
+    # admission lock still holds, so the station isn't actually unsafe. See
+    # gracelab_client.py's _do_enter_maintenance for the full reasoning.
     station_fatal = {
         "start_script_failed", "end_script_failed", "reset_script_failed",
-        "profile_reset_failed",
+        "profile_reset_failed", "maintenance_exit_failed",
     }
     if event_type in station_fatal:
         station.status = "needs_attention"

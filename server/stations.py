@@ -1,5 +1,6 @@
 import os
 import secrets
+import uuid
 from datetime import datetime, timezone
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
@@ -37,6 +38,27 @@ def _admin_required(f):
             return redirect(url_for("dashboard.index"))
         return f(*args, **kwargs)
     return decorated
+
+
+def _issue_command(station, command_type):
+    """
+    Queue a one-shot station command (reset_gracelab | reboot). Returns
+    (ok, message). Refuses to overwrite a command that's still outstanding —
+    letting the server swap in a new command_id while the client may already
+    be mid-flight on the old one is exactly the kind of race the command_id
+    scheme exists to avoid.
+    """
+    if station.pending_command_type and station.pending_command_status not in ("complete", "failed"):
+        return False, (
+            f"{station.display_name} already has a {station.pending_command_type} "
+            f"command pending. Wait for it to finish before issuing another."
+        )
+    station.pending_command_type = command_type
+    station.pending_command_id = str(uuid.uuid4())
+    station.pending_command_status = None
+    station.pending_command_error = None
+    station.pending_command_issued_at = datetime.now(timezone.utc)
+    return True, None
 
 
 @stations_bp.route("/")
@@ -214,6 +236,104 @@ def cancel_update(station_id):
               station_id=station.id)
     db.session.commit()
     flash(f"Pending update cancelled for {station.display_name}.", "info")
+    return redirect(url_for("stations.list_stations"))
+
+
+@stations_bp.route("/<int:station_id>/enter-maintenance", methods=["POST"])
+@login_required
+@_admin_required
+def enter_maintenance(station_id):
+    """
+    Queue maintenance mode for this station. This is admission control, not
+    a remote interrupt: if a guest session is currently active, it continues
+    normally and maintenance only actually begins once that session ends
+    (see gracelab_client.py's _return_to_available_state). If the station is
+    idle, the client picks this up on its next heartbeat/config poll and
+    switches away almost immediately.
+    """
+    station = db.get_or_404(Station, station_id)
+    station.maintenance_requested = True
+    log_audit("station_maintenance_requested", target_type="station", target_id=station.id,
+              station_id=station.id)
+    db.session.commit()
+    if station.current_session_id:
+        flash(f"Maintenance requested for {station.display_name} — the current session "
+              f"will finish normally, then the station will enter maintenance mode.", "success")
+    else:
+        flash(f"Entering maintenance mode on {station.display_name}.", "success")
+    return redirect(url_for("stations.list_stations"))
+
+
+@stations_bp.route("/<int:station_id>/exit-maintenance", methods=["POST"])
+@login_required
+@_admin_required
+def exit_maintenance(station_id):
+    """
+    Clear the maintenance request — used both for "Cancel Maintenance
+    Request" (still pending, session hasn't ended yet) and "Return to
+    GraceLab" (maintenance is actively running). Same server-side action
+    either way; the client's own state determines whether there's an actual
+    exit workflow to run or nothing was showing yet.
+    """
+    station = db.get_or_404(Station, station_id)
+    station.maintenance_requested = False
+    log_audit("station_maintenance_exit_requested", target_type="station", target_id=station.id,
+              station_id=station.id)
+    db.session.commit()
+    flash(f"Maintenance mode ending for {station.display_name}. "
+          f"The station will return to GraceLab shortly.", "success")
+    return redirect(url_for("stations.list_stations"))
+
+
+@stations_bp.route("/<int:station_id>/reset-gracelab", methods=["POST"])
+@login_required
+@_admin_required
+def reset_gracelab(station_id):
+    """
+    Force-recover a stuck station: terminates any active guest session,
+    clears local session/timer state, resets the guest home, and switches
+    the display back to gracelab — without requiring physical TTY access or
+    a full OS reboot. Unlike maintenance mode, this does NOT wait for a
+    session to end — it is the more forceful recovery tool, so it always
+    ends whatever is currently running.
+    """
+    station = db.get_or_404(Station, station_id)
+    ok, err = _issue_command(station, "reset_gracelab")
+    if not ok:
+        flash(err, "danger")
+        return redirect(url_for("stations.list_stations"))
+    log_audit("station_reset_issued", target_type="station", target_id=station.id,
+              station_id=station.id, details={"command_id": station.pending_command_id})
+    db.session.commit()
+    flash(f"GraceLab reset queued for {station.display_name}. "
+          f"Any active session will be ended immediately.", "success")
+    return redirect(url_for("stations.list_stations"))
+
+
+@stations_bp.route("/<int:station_id>/reboot", methods=["POST"])
+@login_required
+@_admin_required
+def reboot_station(station_id):
+    """
+    Queue a station reboot. Rejected outright here (not just client-side) if
+    a guest session is currently active — Patch C intentionally does not
+    implement a queued-reboot-after-session-ends mechanism; the admin can
+    reboot once the station goes idle, or use Reset GraceLab / Enter
+    Maintenance if the station needs to be pulled from a live session.
+    """
+    station = db.get_or_404(Station, station_id)
+    if station.current_session_id:
+        flash(f"Cannot reboot {station.display_name} — a guest session is active. "
+              f"Wait for it to end, or use Reset GraceLab / Enter Maintenance instead.", "danger")
+        return redirect(url_for("stations.list_stations"))
+    ok, err = _issue_command(station, "reboot")
+    if not ok:
+        flash(err, "danger")
+        return redirect(url_for("stations.list_stations"))
+    log_audit("station_reboot_issued", target_type="station", target_id=station.id,
+              station_id=station.id, details={"command_id": station.pending_command_id})
+    db.session.commit()
+    flash(f"Reboot queued for {station.display_name}.", "success")
     return redirect(url_for("stations.list_stations"))
 
 

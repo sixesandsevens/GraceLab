@@ -121,7 +121,12 @@ info "Removed Firefox policies"
 # ---------------------------------------------------------------------------
 
 rm -f /tmp/gracelab-session.json /tmp/gracelab-guest-logout
+rm -f /run/gracelab-admin-override /run/gracelab-maintenance-exit-requested
 info "Cleared temp files"
+
+# Note: the gracelab-ipc and gracelab-admin groups are intentionally left in
+# place, same as nopasswdlogin — a real administrator account may still be a
+# member and removing the group isn't this script's call to make.
 
 # ---------------------------------------------------------------------------
 # Done

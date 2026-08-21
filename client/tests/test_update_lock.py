@@ -58,7 +58,7 @@ class ReturnToIdleOrUpdateTests(unittest.TestCase):
         client._show_idle = MagicMock()
         client._show_update_lock_screen = MagicMock()
 
-        client._return_to_idle_or_update()
+        client._return_to_available_state()
 
         client._show_idle.assert_called_once()
         client._show_update_lock_screen.assert_not_called()
@@ -68,7 +68,7 @@ class ReturnToIdleOrUpdateTests(unittest.TestCase):
         client._show_idle = MagicMock()
         client._show_update_lock_screen = MagicMock()
 
-        client._return_to_idle_or_update()
+        client._return_to_available_state()
 
         client._show_update_lock_screen.assert_called_once()
         client._show_idle.assert_not_called()
@@ -293,7 +293,7 @@ class SessionEndUpdateRaceTests(unittest.TestCase):
         # Bound-method objects aren't identical across accesses, but they
         # compare equal for the same instance+function — assertEqual is the
         # correct check here, not assertIs.
-        self.assertEqual(callback, client._return_to_idle_or_update)
+        self.assertEqual(callback, client._return_to_available_state)
 
     def test_session_end_shows_update_screen_when_locked(self):
         client = _make_client(_update_locked=True, _update_status="installing")

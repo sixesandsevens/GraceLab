@@ -46,6 +46,13 @@ _MIGRATIONS = [
     ("stations", "last_update_started_at",   "DATETIME"),
     ("stations", "last_update_finished_at",  "DATETIME"),
     ("stations", "desired_client_version",   "TEXT"),
+    ("stations", "maintenance_requested",       "BOOLEAN"),
+    ("stations", "maintenance_active",          "BOOLEAN"),
+    ("stations", "pending_command_type",        "TEXT"),
+    ("stations", "pending_command_id",          "TEXT"),
+    ("stations", "pending_command_status",      "TEXT"),
+    ("stations", "pending_command_issued_at",   "DATETIME"),
+    ("stations", "pending_command_error",       "TEXT"),
 ]
 
 # DDL for sessions table with created_by_user_id nullable.

@@ -18,10 +18,17 @@ States:
 
   IDLE / RESETTING -> UPDATE_PENDING / UPDATE_FAILED
       (server has a queued or failed update for this station — see
-      _return_to_idle_or_update. An update never interrupts SESSION_ACTIVE/
+      _return_to_available_state. An update never interrupts SESSION_ACTIVE/
       SESSION_WARNING; it is only honored the next time the client would
       otherwise return to an admission-capable idle screen.)
   UPDATE_PENDING / UPDATE_FAILED -> IDLE  (server reports the lock cleared)
+
+  Any admission-capable state -> MAINTENANCE_ACTIVE
+      (server requests maintenance — see _return_to_available_state. Like an
+      update, this never interrupts SESSION_ACTIVE/SESSION_WARNING; it is
+      only honored the next time the client would otherwise return to idle.
+      MAINTENANCE_ACTIVE outranks the update lock: see _return_to_available_state.)
+  MAINTENANCE_ACTIVE -> RESETTING -> IDLE/UPDATE_*  (server clears the request)
 """
 
 import configparser
@@ -72,8 +79,12 @@ def load_config():
             "reset_script": "",
             "start_script": "",
             "end_script": "",
+            "enable_admin_override_script": "",
+            "disable_admin_override_script": "",
+            "reboot_script": "",
         },
         "ui": {"fullscreen": "true", "organization_name": "Grace Marketplace"},
+        "maintenance": {"admin_user": ""},
     })
     read = cfg.read(_CONFIG_PATHS)
     if not read:
@@ -126,12 +137,13 @@ class GraceLabAPI:
         except (urllib.error.URLError, OSError) as e:
             raise APIError(f"Connection failed: {e}")
 
-    def heartbeat(self, status, current_session_id=None):
+    def heartbeat(self, status, current_session_id=None, maintenance_active=False):
         return self._post("/api/station/heartbeat", {
             "hostname": self._hostname,
             "status": status,
             "current_session_id": current_session_id,
             "client_version": CLIENT_VERSION,
+            "maintenance_active": maintenance_active,
         })
 
     def get_config(self):
@@ -170,6 +182,16 @@ class GraceLabAPI:
             "session_id": session_id,
             "code": code,
         })
+
+    def command_status(self, command_id, status, error=None):
+        return self._post("/api/station/command-status", {
+            "command_id": command_id,
+            "status": status,
+            "error": error or "",
+        })
+
+    def maintenance_exit(self):
+        return self._post("/api/station/maintenance-exit", {})
 
 # ---------------------------------------------------------------------------
 # Colors / layout constants
@@ -215,6 +237,7 @@ class GraceLabClient:
     TOS_PENDING     = "TOS_PENDING"
     UPDATE_PENDING  = "UPDATE_PENDING"
     UPDATE_FAILED   = "UPDATE_FAILED"
+    MAINTENANCE_ACTIVE = "MAINTENANCE_ACTIVE"
 
     def __init__(self, root, cfg):
         self.root = root
@@ -246,11 +269,21 @@ class GraceLabClient:
         # Update-lock state, from the server's heartbeat/config responses.
         # _update_locked is the session-admission lock: while True, no new
         # session may start. It never interrupts a session already running —
-        # see _return_to_idle_or_update.
+        # see _return_to_available_state.
         self._update_locked = False
         self._update_status = None              # None | "downloading" | "installing" | "failed" | ...
         self._desired_client_version = None
         self._update_lock_screen_status = None   # status the update screen currently reflects
+
+        # Maintenance-mode state (Patch C). _maintenance_requested mirrors the
+        # server's authoritative intent; "are we actually in maintenance
+        # right now" is just self._state == MAINTENANCE_ACTIVE, no separate
+        # flag needed. _last_handled_command_id guards the one-shot
+        # reset/reboot command channel against re-dispatching the same
+        # command while it's still being handled or before the server has
+        # cleared it (see _dispatch_station_command).
+        self._maintenance_requested = False
+        self._last_handled_command_id = None
 
         self._build_ui()
         self._show_idle()
@@ -456,6 +489,11 @@ class GraceLabClient:
     def _begin_open_session(self):
         if self._state != self.IDLE:
             return
+        if self._maintenance_requested:
+            # Same race/defense-in-depth reasoning as the update-lock check
+            # below — maintenance takes priority (see _return_to_available_state).
+            self._enter_maintenance()
+            return
         if self._update_locked:
             # Belt-and-suspenders: the idle screen should already have been
             # replaced by the update-lock screen, but refuse here too in case
@@ -485,6 +523,10 @@ class GraceLabClient:
         if not result.get("ok"):
             err = result.get("error", "unknown")
             log.warning("Open start rejected: %s", err)
+            if err == "station_maintenance":
+                self._maintenance_requested = True
+                self.root.after(0, self._enter_maintenance)
+                return
             if err == "station_updating":
                 self._update_locked = True
                 self.root.after(0, self._show_update_lock_screen)
@@ -750,16 +792,37 @@ class GraceLabClient:
         tk.Label(outer, text="Please ask staff for assistance.",
                  bg=BG, fg=FG_MUTED, font=self._f_small).pack()
 
-    def _return_to_idle_or_update(self):
+    def _show_maintenance_active(self):
+        self._set_state(self.MAINTENANCE_ACTIVE)
+        self._cancel_timer()
+        self._cancel_sync()
+        self._clear()
+
+        outer = tk.Frame(self._main, bg=BG)
+        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(outer, text="Maintenance Mode", bg=BG, fg=FG, font=self._f_heading).pack(pady=(0, 16))
+        tk.Label(outer, text="This computer is temporarily unavailable for maintenance.",
+                 bg=BG, fg=FG_MUTED, font=self._f_body).pack()
+
+    def _return_to_available_state(self):
         """
         The single choke point for returning to an admission-capable state
-        after a session/reset/recovery flow finishes. Routing through
-        _show_idle() directly from those flows would let a session admitted
-        the instant Start Session reappears race a queued update the client
-        already knows about — so every "we're done, go back to idle" call
-        site must go through this instead.
+        after a session/reset/recovery/maintenance-exit flow finishes.
+        Routing through _show_idle() directly from those flows would let a
+        session admitted the instant Start Session reappears race a lock the
+        client already knows about — so every "we're done, go back to idle"
+        call site must go through this instead.
+
+        Priority, highest first: maintenance requested/active, then the
+        Patch B update lock, then normal idle. needs_attention/out_of_service
+        are NOT resolved here — those are entered directly by _send_heartbeat
+        based on station_status and already take priority over ever calling
+        this method in the first place (see _send_heartbeat's branch order).
         """
-        if self._update_locked:
+        if self._maintenance_requested:
+            self._enter_maintenance()
+        elif self._update_locked:
             self._show_update_lock_screen()
         else:
             self._show_idle()
@@ -936,6 +999,10 @@ class GraceLabClient:
     def _submit_code(self):
         if self._state != self.IDLE:
             return
+        if self._maintenance_requested:
+            # See _begin_open_session — same race, same defense-in-depth.
+            self._enter_maintenance()
+            return
         if self._update_locked:
             # See _begin_open_session — same race, same defense-in-depth.
             self._show_update_lock_screen()
@@ -963,6 +1030,10 @@ class GraceLabClient:
             return
 
         if not result.get("ok"):
+            if result.get("error") == "station_maintenance":
+                self._maintenance_requested = True
+                self.root.after(0, self._enter_maintenance)
+                return
             if result.get("error") == "station_updating":
                 self._update_locked = True
                 self.root.after(0, self._show_update_lock_screen)
@@ -991,6 +1062,10 @@ class GraceLabClient:
         if not start_result.get("ok"):
             err = start_result.get("error", "unknown")
             log.warning("Start rejected: %s", err)
+            if err == "station_maintenance":
+                self._maintenance_requested = True
+                self.root.after(0, self._enter_maintenance)
+                return
             if err == "station_updating":
                 self._update_locked = True
                 self.root.after(0, self._show_update_lock_screen)
@@ -1269,13 +1344,50 @@ class GraceLabClient:
         self._show_ending("Session ended.")
         threading.Thread(target=self._end_and_reset, args=("guest_logout",), daemon=True).start()
 
-    def _ensure_guestlab_active(self):
+    # ------------------------------------------------------------------
+    # Admin override (Patch C) — /run/gracelab-admin-override
+    #
+    # A deliberately-managed breadcrumb, not a guest-reachable one: the file
+    # lives directly under /run (root:root, mode 755), not the shared
+    # /run/gracelab/ IPC directory guestlab also has write access to, so
+    # creating/removing it requires root — see enable_admin_override_script /
+    # disable_admin_override_script and the matching sudoers entries. Reading
+    # it back is a plain stat, no privilege needed. The freshness window
+    # means a client crash mid-maintenance can't disable enforcement forever;
+    # a fresh maintenance cycle's own enable/disable scripts also refresh it.
+    # ------------------------------------------------------------------
+
+    def _admin_override_active(self):
         override = "/run/gracelab-admin-override"
         try:
-            if time.time() - os.stat(override).st_mtime < 4 * 3600:
-                return
+            return time.time() - os.stat(override).st_mtime < 4 * 3600
         except OSError:
-            pass
+            return False
+
+    def _enable_admin_override(self):
+        script = self.cfg.get("paths", "enable_admin_override_script", fallback="")
+        ok = self._run_script(script, "enable_admin_override",
+                              failure_event="maintenance_enter_failed")
+        if ok:
+            log.info("Admin override enabled.")
+        else:
+            log.error("Could not enable admin override — watchdog/lockdown scripts "
+                      "may keep re-enforcing kiosk state in the background.")
+        return ok
+
+    def _disable_admin_override(self):
+        script = self.cfg.get("paths", "disable_admin_override_script", fallback="")
+        ok = self._run_script(script, "disable_admin_override",
+                              failure_event="maintenance_exit_failed")
+        if ok:
+            log.info("Admin override disabled.")
+        else:
+            log.error("Could not disable admin override.")
+        return ok
+
+    def _ensure_guestlab_active(self):
+        if self._admin_override_active():
+            return
         try:
             env = dict(os.environ)
             env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
@@ -1329,6 +1441,65 @@ class GraceLabClient:
             if attempt < attempts:
                 time.sleep(delay)
         return False
+
+    def _dm_tool_switch(self, args, timeout=5, context=""):
+        """
+        Low-level dm-tool invocation for maintenance-mode display switching
+        (switch-to-user <admin_user> / switch-to-greeter). Same pattern as
+        _switch_to_gracelab above — kept as a separate small helper rather
+        than sharing code with it, since _switch_to_gracelab is exercised by
+        existing tests asserting its exact log text and changing its
+        internals isn't worth the risk for what's otherwise ~20 lines.
+        Returns True only on confirmed subprocess success.
+        """
+        tag = f" ({context})" if context else ""
+        env = dict(os.environ)
+        env.setdefault("XDG_SEAT_PATH", "/org/freedesktop/DisplayManager/Seat0")
+        try:
+            result = subprocess.run(
+                ["dm-tool", *args],
+                env=env, timeout=timeout, capture_output=True, text=True,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning("dm-tool %s timed out after %ss%s.", " ".join(args), timeout, tag)
+            return False
+        except Exception as e:
+            log.warning("dm-tool %s failed to run%s: %s", " ".join(args), tag, e)
+            return False
+
+        if result.returncode != 0:
+            log.warning(
+                "dm-tool %s exited %s%s. stdout=%s stderr=%s",
+                " ".join(args), result.returncode, tag,
+                (result.stdout or "").strip(), (result.stderr or "").strip(),
+            )
+            return False
+
+        log.info("dm-tool %s succeeded%s.", " ".join(args), tag)
+        return True
+
+    def _switch_to_admin_session(self, timeout=5, context=""):
+        """
+        Switch the physical display toward the local Linux administrator —
+        their own graphical session if [maintenance] admin_user is
+        configured and reachable, otherwise the LightDM greeter so a human
+        at the console can authenticate normally. GraceLab never stores or
+        checks any admin password itself; this only makes the login/session
+        reachable (see README "Two OS users on each station" — admin_user is
+        a third, separately-provisioned account, distinct from gracelab and
+        guestlab).
+        """
+        admin_user = self.cfg.get("maintenance", "admin_user", fallback="").strip()
+        if admin_user:
+            if self._dm_tool_switch(["switch-to-user", admin_user], timeout=timeout,
+                                    context=context or f"admin-user:{admin_user}"):
+                return True
+            log.warning("Switch to configured admin_user=%s failed — falling back to "
+                       "the LightDM greeter.", admin_user)
+        else:
+            log.info("No [maintenance] admin_user configured — switching to the LightDM greeter.")
+        return self._dm_tool_switch(["switch-to-greeter"], timeout=timeout,
+                                    context=context or "greeter")
 
     def _run_script(self, script_path, label, timeout=120, failure_event="client_error"):
         """
@@ -1455,11 +1626,11 @@ class GraceLabClient:
             self.root.after(0, lambda: self._show_needs_attention(
                 "Session end script failed. Please ask staff for help."
             ))
-            return
+            return False
 
         log.info("Session %s: reset starting.", sid)
         self.root.after(0, self._show_resetting)
-        self._run_reset(sid)
+        return self._run_reset(sid)
 
     def _run_reset(self, sid):
         reset_script = self.cfg.get("paths", "reset_script")
@@ -1481,10 +1652,12 @@ class GraceLabClient:
             log.info("Session %s: reset completed — returning to idle.", sid)
             self._session_id = None
             self._expires_at = None
-            # Route through the update-lock gate, not _show_idle directly —
-            # a session ending is exactly the moment a queued update becomes
-            # relevant, and this must never race a fresh session admission.
-            self.root.after(0, self._return_to_idle_or_update)
+            # Route through the shared "what should we show now" gate, not
+            # _show_idle directly — a session ending is exactly the moment a
+            # queued update or maintenance request becomes relevant, and this
+            # must never race a fresh session admission.
+            self.root.after(0, self._return_to_available_state)
+            return True
         else:
             try:
                 self.api.event(sid, "profile_reset_failed", "Reset script failed.")
@@ -1493,6 +1666,7 @@ class GraceLabClient:
             self.root.after(0, lambda: self._show_needs_attention(
                 "Profile reset failed. Please ask staff for help."
             ))
+            return False
 
     # ------------------------------------------------------------------
     # Heartbeat
@@ -1505,6 +1679,7 @@ class GraceLabClient:
         )
 
     def _heartbeat_tick(self):
+        self._check_local_maintenance_exit_request()
         threading.Thread(target=self._send_heartbeat, daemon=True).start()
         if self._state == self.IDLE:
             threading.Thread(target=self._fetch_server_config, daemon=True).start()
@@ -1514,33 +1689,60 @@ class GraceLabClient:
             self.SESSION_ACTIVE, self.SESSION_WARNING, self.SESSION_STARTING
         ) else "available"
         try:
-            resp = self.api.heartbeat(status, self._session_id)
+            resp = self.api.heartbeat(status, self._session_id,
+                                      maintenance_active=(self._state == self.MAINTENANCE_ACTIVE))
             station_status = resp.get("station_status") if resp else None
             if resp:
-                # Record the update lock on every heartbeat regardless of
-                # state — this does NOT touch the UI by itself. An active
-                # session only learns the lock is queued; it is honored the
-                # next time the client would return to idle (see
-                # _return_to_idle_or_update / _run_reset).
+                # Record the update/maintenance locks on every heartbeat
+                # regardless of state — this does NOT touch the UI by itself.
+                # An active session only learns a lock is queued; it is
+                # honored the next time the client would return to idle (see
+                # _return_to_available_state / _run_reset).
                 self._update_locked = bool(resp.get("update_pending"))
                 self._update_status = resp.get("update_status")
                 self._desired_client_version = resp.get("desired_client_version")
+                self._maintenance_requested = bool(resp.get("maintenance_requested"))
+
+                command = resp.get("station_command")
+                if command and command.get("id") and command["id"] != self._last_handled_command_id:
+                    # See _dispatch_station_command for the replay-safety
+                    # reasoning: this in-memory guard stops us from spawning
+                    # a second handler thread for a command we're already
+                    # working on across back-to-back heartbeats; the server
+                    # clearing pending_command_id on completion is the
+                    # primary defense against a stale command re-executing.
+                    self._last_handled_command_id = command["id"]
+                    self._dispatch_station_command(command["id"], command.get("type"))
 
             if self._state == self.OFFLINE:
                 log.info("Server back online.")
-                self.root.after(0, self._return_to_idle_or_update)
+                self.root.after(0, self._return_to_available_state)
             elif self._state == self.NEEDS_ATTENTION and station_status == "available":
                 log.info("Station cleared by server — returning to idle.")
-                self.root.after(0, self._return_to_idle_or_update)
+                self.root.after(0, self._return_to_available_state)
             elif self._state == self.IDLE and station_status in ("needs_attention", "out_of_service"):
                 log.warning("Server reports station %s — showing attention screen.", station_status)
                 self.root.after(0, lambda s=station_status: self._show_needs_attention(
                     f"This station has been marked {s.replace('_', ' ')}."
                 ))
+            elif self._state == self.IDLE and self._maintenance_requested:
+                log.info("Maintenance requested — entering maintenance mode.")
+                self.root.after(0, self._enter_maintenance)
             elif self._state == self.IDLE and self._update_locked:
                 log.info("Update lock active (status=%s, target=%s) — blocking new sessions.",
                          self._update_status, self._desired_client_version)
                 self.root.after(0, self._show_update_lock_screen)
+            elif self._state == self.MAINTENANCE_ACTIVE:
+                if station_status in ("needs_attention", "out_of_service"):
+                    log.warning("Server reports station %s during maintenance — showing attention screen.",
+                               station_status)
+                    self.root.after(0, lambda s=station_status: self._show_needs_attention(
+                        f"This station has been marked {s.replace('_', ' ')}."
+                    ))
+                elif not self._maintenance_requested:
+                    log.info("Maintenance exit requested by server — returning to GraceLab.")
+                    self.root.after(0, self._exit_maintenance)
+                # else: still wanted — heartbeat just keeps the state fresh.
             elif self._state in (self.UPDATE_PENDING, self.UPDATE_FAILED):
                 # Operational station status still takes priority over a
                 # cheerful update screen, and a completed/cancelled update
@@ -1551,9 +1753,12 @@ class GraceLabClient:
                     self.root.after(0, lambda s=station_status: self._show_needs_attention(
                         f"This station has been marked {s.replace('_', ' ')}."
                     ))
+                elif self._maintenance_requested:
+                    log.info("Maintenance requested while update-locked — entering maintenance mode.")
+                    self.root.after(0, self._enter_maintenance)
                 elif not self._update_locked:
                     log.info("Update lock cleared by server — returning to idle.")
-                    self.root.after(0, self._show_idle)
+                    self.root.after(0, self._return_to_available_state)
                 elif self._update_lock_screen_status != self._update_status:
                     # Status advanced (e.g. pending -> installing -> failed) —
                     # refresh the on-screen text to match.
@@ -1648,6 +1853,7 @@ class GraceLabClient:
             self._update_locked = bool(resp.get("update_pending"))
             self._update_status = resp.get("update_status")
             self._desired_client_version = resp.get("desired_client_version")
+            self._maintenance_requested = bool(resp.get("maintenance_requested"))
 
         session_id = resp.get("active_session_id") if resp else None
         expires_at = resp.get("active_expires_at") if resp else None
@@ -1656,9 +1862,9 @@ class GraceLabClient:
             open_mode = bool(resp.get("active_open_mode"))
             self._recover_from_heartbeat(session_id, expires_at, warning_minutes, open_mode)
         else:
-            # Nothing active on the server — go idle, or the update screen if
-            # a queued update means this station can't admit a new one.
-            self.root.after(0, self._return_to_idle_or_update)
+            # Nothing active on the server — go idle, or the update/maintenance
+            # screen if a lock means this station can't admit a new one.
+            self.root.after(0, self._return_to_available_state)
 
     def _reconnect_loop(self):
         if self._state != self.OFFLINE:
@@ -1673,7 +1879,8 @@ class GraceLabClient:
                 self._update_locked = bool(resp.get("update_pending"))
                 self._update_status = resp.get("update_status")
                 self._desired_client_version = resp.get("desired_client_version")
-            self.root.after(0, self._return_to_idle_or_update)
+                self._maintenance_requested = bool(resp.get("maintenance_requested"))
+            self.root.after(0, self._return_to_available_state)
         except APIError:
             self.root.after(10000, self._reconnect_loop)
 
@@ -1699,10 +1906,216 @@ class GraceLabClient:
                 self._update_locked = bool(result.get("update_pending"))
                 self._update_status = result.get("update_status")
                 self._desired_client_version = result.get("desired_client_version")
+                self._maintenance_requested = bool(result.get("maintenance_requested"))
                 if self._state == self.IDLE:
-                    self.root.after(0, self._return_to_idle_or_update)
+                    self.root.after(0, self._return_to_available_state)
         except APIError:
             pass
+
+    # ------------------------------------------------------------------
+    # Maintenance mode (Patch C)
+    # ------------------------------------------------------------------
+
+    def _enter_maintenance(self):
+        """
+        Idle -> Maintenance transition (Case A), or the tail of a
+        session-end/reset flow when maintenance was requested during an
+        active session (Case B, reached via _return_to_available_state).
+        Shows the brief transition screen immediately, then runs the
+        override/display-switch sequence in the background since it shells
+        out and hits the network.
+        """
+        self._show_maintenance_active()
+        threading.Thread(target=self._do_enter_maintenance, daemon=True).start()
+
+    def _do_enter_maintenance(self):
+        log.info("Entering maintenance mode.")
+        self._enable_admin_override()
+        log.info("Maintenance: switching display to the admin session.")
+        switch_ok = self._switch_to_admin_session(context="enter-maintenance")
+        if switch_ok:
+            log.info("Maintenance: display switch succeeded — maintenance active.")
+        else:
+            log.error("Maintenance: display switch failed — station may still be showing "
+                     "GraceLab; the admin override remains enabled so watchdog/lockdown "
+                     "won't fight a manual recovery attempt (Ctrl+Alt+Fx / the greeter).")
+            try:
+                self.api.event(None, "maintenance_enter_failed",
+                               "Display switch to admin session failed.")
+            except APIError:
+                pass
+        # State stays MAINTENANCE_ACTIVE either way: the admission lock and
+        # the override are the safety-critical parts of "entering
+        # maintenance," and both already hold regardless of whether the
+        # display switch itself succeeded.
+
+    def _exit_maintenance(self):
+        """
+        Maintenance -> GraceLab transition, triggered when the server (or a
+        local Return-to-GraceLab request, see
+        _check_local_maintenance_exit_request) reports maintenance should
+        end while we're in MAINTENANCE_ACTIVE.
+        """
+        if self._state != self.MAINTENANCE_ACTIVE:
+            return
+        log.info("Maintenance exit requested — returning to GraceLab.")
+        self.root.after(0, self._show_resetting)
+        threading.Thread(target=self._do_exit_maintenance, daemon=True).start()
+
+    def _do_exit_maintenance(self):
+        log.info("Maintenance: switching display back to gracelab.")
+        switch_ok = self._switch_to_gracelab(context="exit-maintenance")
+        if not switch_ok:
+            log.warning("Maintenance: display switch to gracelab failed — retrying.")
+            switch_ok = self._switch_to_gracelab_with_retries(context="exit-maintenance-retry")
+
+        self._disable_admin_override()
+
+        # Clear any guestlab residue and reset the guest home, mirroring
+        # normal session teardown — an admin may have left guestlab logged
+        # in, or the home directory dirty, while working locally.
+        end_script = self.cfg.get("paths", "end_script")
+        end_ok = self._run_script(end_script, "end", failure_event="end_script_failed")
+        reset_ok = True
+        if end_ok:
+            reset_script = self.cfg.get("paths", "reset_script")
+            reset_ok = self._run_script(reset_script, "reset", failure_event="reset_script_failed")
+
+        self._maintenance_requested = False
+
+        if not switch_ok:
+            log.error("Maintenance exit: display recovery to gracelab failed after retries.")
+            try:
+                self.api.event(None, "maintenance_exit_failed",
+                               "Display switch back to gracelab failed after retries.")
+            except APIError:
+                pass
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Could not return the display to GraceLab after maintenance. "
+                "Please ask staff for help."
+            ))
+            return
+
+        if not (end_ok and reset_ok):
+            log.error("Maintenance exit: guest cleanup failed.")
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Maintenance cleanup failed. Please ask staff for help."
+            ))
+            return
+
+        log.info("Maintenance exited successfully.")
+        self.root.after(0, self._return_to_available_state)
+
+    def _check_local_maintenance_exit_request(self):
+        """
+        Local "Return to GraceLab" convenience (see
+        client/scripts/request_maintenance_exit.sh): a narrowly-scoped sudo
+        script, invokable from the admin's own session, touches a root-owned
+        flag file gracelab_client.py can read but not write. We can't unlink
+        it ourselves (no write access to /run), so we just react to it —
+        the enable/disable_admin_override scripts clean it up as part of the
+        next maintenance enter/exit cycle. Only acts while actually in
+        maintenance, so a flag left over from some anomaly can't do anything
+        outside that state.
+        """
+        if self._state != self.MAINTENANCE_ACTIVE:
+            return
+        if not os.path.exists("/run/gracelab-maintenance-exit-requested"):
+            return
+        log.info("Local Return-to-GraceLab request detected — exiting maintenance.")
+        threading.Thread(target=self._report_local_maintenance_exit, daemon=True).start()
+        self._exit_maintenance()
+
+    def _report_local_maintenance_exit(self):
+        try:
+            self.api.maintenance_exit()
+        except APIError as e:
+            log.warning("Could not report local maintenance exit to server: %s", e)
+
+    # ------------------------------------------------------------------
+    # Station command channel (Patch C) — reset_gracelab | reboot
+    # ------------------------------------------------------------------
+
+    def _dispatch_station_command(self, command_id, command_type):
+        """
+        Explicit allowlist dispatch — never a generic command string
+        interpreted by a shell. Anything outside these two exact types is
+        rejected and reported failed rather than silently ignored, so a
+        future server/client version mismatch is visible on the dashboard
+        instead of a station that looks like it's ignoring commands.
+        """
+        log.info("Station command received: id=%s type=%s", command_id, command_type)
+        if command_type == "reset_gracelab":
+            threading.Thread(target=self._handle_reset_gracelab_command,
+                             args=(command_id,), daemon=True).start()
+        elif command_type == "reboot":
+            threading.Thread(target=self._handle_reboot_command,
+                             args=(command_id,), daemon=True).start()
+        else:
+            log.warning("Unsupported station command type: %s (id=%s) — ignoring.",
+                       command_type, command_id)
+            self._report_command_status(command_id, "failed",
+                                        error=f"Unsupported command type: {command_type}")
+
+    def _report_command_status(self, command_id, status, error=None):
+        try:
+            self.api.command_status(command_id, status, error)
+        except APIError as e:
+            log.warning("Could not report command status (%s -> %s): %s", command_id, status, e)
+
+    def _handle_reset_gracelab_command(self, command_id):
+        """
+        Force-recover a stuck station: reuses the exact same teardown
+        pipeline as a normal session end (_end_and_reset), which already
+        does pre/post display-switch verification, guest termination, and
+        profile reset with full logging (Patch A). Unlike maintenance mode,
+        this always proceeds even if a session is currently active — it is
+        the more forceful recovery tool (see stations.py's reset_gracelab
+        route for the admin-facing warning).
+        """
+        log.info("Remote reset command received (id=%s).", command_id)
+        self._report_command_status(command_id, "acknowledged")
+        self._cancel_timer()
+        self._cancel_sync()
+        if self._state in (self.SESSION_ACTIVE, self.SESSION_WARNING):
+            self.root.after(0, lambda: self._show_ending("This computer is being reset by staff."))
+        else:
+            self.root.after(0, self._show_resetting)
+
+        ok = self._end_and_reset("remote_reset")
+        if ok:
+            log.info("Remote reset command %s completed successfully.", command_id)
+            self._report_command_status(command_id, "complete")
+        else:
+            log.error("Remote reset command %s failed — station left needs_attention "
+                     "by the teardown pipeline itself.", command_id)
+            self._report_command_status(command_id, "failed",
+                                        error="Reset lifecycle failed — see station logs.")
+
+    def _handle_reboot_command(self, command_id):
+        """
+        Reject outright while a guest session is active — Patch C does not
+        implement queue-until-idle for reboot, matching stations.py's own
+        rejection of the request at issue time. Reports "complete" BEFORE
+        actually invoking systemctl reboot: once the machine starts going
+        down there is no reliable way to report afterward, and the server
+        must not keep re-issuing the same reboot after the station comes
+        back up (see api.py's station_command_status — a report only counts
+        if pending_command_id still matches, and complete/failed clears it).
+        """
+        log.info("Reboot command received (id=%s).", command_id)
+        if self._state in (self.SESSION_ACTIVE, self.SESSION_WARNING, self.SESSION_STARTING):
+            log.warning("Reboot command %s rejected — a guest session is active.", command_id)
+            self._report_command_status(command_id, "failed",
+                                        error="Rejected: a guest session is currently active.")
+            return
+
+        log.info("Reboot command %s acknowledged — station is idle, proceeding.", command_id)
+        self._report_command_status(command_id, "complete")
+        reboot_script = self.cfg.get("paths", "reboot_script", fallback="")
+        ok = self._run_script(reboot_script, "reboot", failure_event="client_error")
+        if not ok:
+            log.error("Reboot command %s: reboot script failed to execute.", command_id)
 
     # ------------------------------------------------------------------
     # Misc

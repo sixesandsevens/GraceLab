@@ -161,9 +161,26 @@ pkill -x xfce4-panel   2>/dev/null || true
 
 # ── Watchdog loop ──────────────────────────────────────────────────────────
 # Re-kill any panel, desktop, or menu helper that respawns (e.g. XFCE session
-# manager restarting crashed components).
+# manager restarting crashed components). Paused while the admin override is
+# active (Patch C maintenance mode) — same file/freshness window as
+# window-watchdog.sh, so re-enforcement doesn't fight an administrator
+# working the gracelab desktop directly during maintenance. The one-shot
+# setup above this loop is untouched: it always runs once at gracelab's
+# login, long before maintenance mode could ever be requested.
+ADMIN_OVERRIDE="/run/gracelab-admin-override"
+ADMIN_OVERRIDE_MAX_AGE=14400  # 4 hours
+
+_override_active() {
+    local mtime now
+    [[ -f "$ADMIN_OVERRIDE" ]] || return 1
+    mtime=$(stat -c %Y "$ADMIN_OVERRIDE" 2>/dev/null) || return 1
+    now=$(date +%s)
+    (( now - mtime < ADMIN_OVERRIDE_MAX_AGE ))
+}
+
 while true; do
     sleep 3
+    _override_active && continue
     pkill -x xfce4-panel   2>/dev/null || true
     pkill -x xfdesktop      2>/dev/null || true
     pkill -f xfce-superkey 2>/dev/null || true

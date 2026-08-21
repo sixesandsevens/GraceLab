@@ -18,6 +18,9 @@ sync_interval_seconds = 12
 # end_script    = sudo /opt/gracelab-client/current/scripts/end_guest_session.sh
 # reset_script  = sudo /opt/gracelab-client/current/scripts/reset_guest_home.sh
 # session_state = /var/lib/gracelab-client/session-state.json
+# enable_admin_override_script  = sudo /opt/gracelab-client/current/scripts/enable_admin_override.sh
+# disable_admin_override_script = sudo /opt/gracelab-client/current/scripts/disable_admin_override.sh
+# reboot_script                 = sudo /opt/gracelab-client/current/scripts/reboot_station.sh
 #
 # For local dev/testing — point at the repo scripts directory:
 start_script = scripts/start_guest_session.sh
@@ -42,3 +45,12 @@ check_interval_seconds = 300
 # queued from the admin dashboard. Only "force" installs during an active
 # session — set it per-station only if you specifically need that.
 install_policy = idle_only
+
+[maintenance]
+# Local Linux administrator account switched to when maintenance mode is
+# entered (see README "Two OS users on each station" — this is a third,
+# separately-provisioned account, distinct from gracelab and guestlab).
+# Leave blank if you haven't provisioned one yet; maintenance mode falls
+# back to the LightDM greeter, which still lets an operator authenticate
+# normally. GraceLab never stores or checks this account's password.
+admin_user =
