@@ -92,6 +92,24 @@ class WriteGuestTimerFileTests(unittest.TestCase):
         self.assertIn("expires_at", data)
         self.assertTrue(data["open_mode"])
 
+    def test_open_session_start_writes_timer_file(self):
+        # Regression: _do_open_session saved session state but never wrote
+        # the guest timer file, so the desktop overlay gave up after 30 s.
+        client = _make_client(_session_id=None, _sync_interval=30)
+        client.api.open_start.return_value = {
+            "ok": True, "session_id": 7,
+            "expires_at": "2999-01-01T00:00:00", "open_mode": True,
+        }
+        client._save_session_state = MagicMock()
+        client._run_script = MagicMock(return_value=True)
+
+        client._do_open_session()
+
+        with open(gracelab_client.GUEST_TIMER_FILE) as f:
+            data = json.load(f)
+        self.assertEqual(data["expires_at"], "2999-01-01T00:00:00")
+        self.assertTrue(data["open_mode"])
+
     def test_no_expires_at_skips_write(self):
         client = _make_client(_expires_at=None, _is_open_session=True)
         client._write_guest_timer_file()

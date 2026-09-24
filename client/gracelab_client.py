@@ -44,7 +44,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.4.0"
+CLIENT_VERSION = "0.4.1"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -568,6 +568,7 @@ class GraceLabClient:
         self._is_open_session = True
         log.info("Open session %s started, expires %s", session_id, expires_str)
         self._save_session_state()
+        self._write_guest_timer_file()
 
         start_script = self.cfg.get("paths", "start_script")
         start_ok = self._run_script(start_script, "start", failure_event="start_script_failed")
