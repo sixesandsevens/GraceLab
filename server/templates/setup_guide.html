@@ -77,10 +77,24 @@
     The installer must be run from the root of the GraceLab repo. It requires <code>python3</code> and will
     install <code>python3-tk</code> and <code>rsync</code> automatically if missing.
   </div>
+  <p>
+    Optional — wires up maintenance mode (see Step 5). If this station already has a separate local Linux
+    administrator account provisioned, use this version instead (replace <code>ADMIN-USERNAME</code> with the
+    real account name):
+  </p>
+  <div class="copy-block">
+    <pre>sudo ./tools/install-client.sh \
+  --server-url {{ server_url }} \
+  --hostname   LAB-PC-01 \
+  --token      PASTE-TOKEN-HERE \
+  --admin-user ADMIN-USERNAME</pre>
+    <button class="copy-btn" onclick="copyBlock(this)">Copy</button>
+  </div>
   <div class="setup-note">
-    Optional: add <code>--admin-user &lt;username&gt;</code> to the command above if this station already has a
-    separate local Linux administrator account provisioned. This wires up maintenance mode — see Step 5. It can
-    also be added later by re-running the installer.
+    Don't hand-edit the first command to add this — every line except the last needs a trailing
+    <code>\</code> to continue onto the next, and a line without one ends the command early (the rest runs as a
+    separate, unrelated shell command, and <code>--admin-user</code> never reaches the installer). Copy this
+    whole block instead. This flag can also be added later by re-running the installer.
   </div>
 </div>
 
