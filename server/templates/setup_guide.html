@@ -71,10 +71,16 @@
     <li>Write <code>/etc/gracelab/client_config.ini</code></li>
     <li>Configure LightDM autologin and XFCE kiosk lockdown</li>
     <li>Apply Firefox policies and terminal blocks</li>
+    <li>Install sudoers rules for the maintenance-mode/reboot helper scripts and create the <code>gracelab-admin</code> group (see Step 5)</li>
   </ul>
   <div class="setup-note">
     The installer must be run from the root of the GraceLab repo. It requires <code>python3</code> and will
     install <code>python3-tk</code> and <code>rsync</code> automatically if missing.
+  </div>
+  <div class="setup-note">
+    Optional: add <code>--admin-user &lt;username&gt;</code> to the command above if this station already has a
+    separate local Linux administrator account provisioned. This wires up maintenance mode — see Step 5. It can
+    also be added later by re-running the installer.
   </div>
 </div>
 
@@ -94,6 +100,60 @@
     If the station shows <strong>Offline</strong>, confirm it is on the correct network and can reach
     <code>{{ server_url }}</code>. Also verify the hostname in <code>/etc/gracelab/client_config.ini</code>
     matches what was registered in Step 1.
+  </div>
+</div>
+
+<!-- Step 5: Maintenance mode -->
+<div class="setup-step">
+  <div class="setup-step-header">
+    <span class="setup-step-num">5</span>
+    <span class="setup-step-title">Maintenance Mode (Optional)</span>
+  </div>
+  <p>
+    Maintenance mode lets you pull a station out of guest service for upkeep without a full reboot, and gives you
+    two remote recovery actions for stuck stations. All of it is controlled from the
+    <strong>Stations</strong> dashboard — no separate app.
+  </p>
+  <p>
+    <a href="{{ url_for('stations.list_stations') }}" class="btn btn-primary btn-sm">Go to Stations &rarr;</a>
+  </p>
+  <ul style="font-size:13px;padding-left:1.5rem;margin-bottom:0.75rem;line-height:2">
+    <li>
+      <strong>Enter Maintenance</strong> — queues maintenance for the station. If a guest session is active it
+      finishes normally first; an idle station switches away almost immediately. Use
+      <strong>Cancel Maintenance Request</strong> / <strong>Return to GraceLab</strong> (same button, same action)
+      to end it.
+    </li>
+    <li>
+      <strong>Reset GraceLab</strong> — force-recovers a stuck station: ends any active session immediately,
+      resets the guest home, and switches the display back to GraceLab. More forceful than maintenance mode —
+      it does not wait for a session to end.
+    </li>
+    <li>
+      <strong>Reboot</strong> — queues a full reboot. Rejected if a guest session is currently active; use Reset
+      GraceLab or Enter Maintenance first if the station needs to be pulled out of a live session.
+    </li>
+  </ul>
+  <p>While a station is in maintenance mode, or has a Reset/Reboot command pending, it will not admit new guest sessions.</p>
+  <div class="setup-note">
+    To let a local administrator exit maintenance mode from the station itself (instead of via this dashboard),
+    provision a separate local Linux admin account and either pass <code>--admin-user &lt;username&gt;</code> to
+    the installer or set <code>[maintenance] admin_user</code> in <code>/etc/gracelab/client_config.ini</code>,
+    then add that account to the <code>gracelab-admin</code> group. From that account's session, run:
+  </div>
+  <div class="copy-block">
+    <pre>sudo /opt/gracelab-client/current/scripts/request_maintenance_exit.sh</pre>
+    <button class="copy-btn" onclick="copyBlock(this)">Copy</button>
+  </div>
+  <div class="setup-note">
+    If no <code>admin_user</code> is configured, maintenance mode falls back to the LightDM login screen, which
+    still lets an operator authenticate normally.
+  </div>
+  <div class="setup-note">
+    Upgrading a station that was installed before this feature existed? Re-run
+    <code>install-client.sh</code> (Step 3) — sudoers is fully regenerated on every run, so this grants the
+    maintenance/reboot scripts. The auto-updater alone ships the new script files but cannot grant sudo rights
+    to them.
   </div>
 </div>
 
