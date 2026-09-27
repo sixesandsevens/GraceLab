@@ -11,4 +11,6 @@ client/client_config.ini
 
 *.log
 *.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 .DS_Store

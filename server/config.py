@@ -10,6 +10,11 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", _DEV_SECRET)
     SQLALCHEMY_DATABASE_URI = "sqlite:///" + os.path.join(INSTANCE_DIR, "gracelab.sqlite3")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Wait up to 15s for a lock instead of sqlite3's 5s default: SD-card write
+    # stalls (e.g. during the daily apt run) can hold a commit that long, and
+    # 5s was surfacing as "database is locked" on heartbeat/config. Stays
+    # well under gunicorn's 30s worker timeout.
+    SQLALCHEMY_ENGINE_OPTIONS = {"connect_args": {"timeout": 15}}
     WTF_CSRF_ENABLED = True
 
     # Session code settings
