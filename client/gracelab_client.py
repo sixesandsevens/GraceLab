@@ -34,7 +34,9 @@ States:
 import configparser
 import json
 import logging
+import math
 import os
+import random
 import subprocess
 import sys
 import threading
@@ -44,7 +46,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.4.2"
+CLIENT_VERSION = "0.4.3"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -83,7 +85,8 @@ def load_config():
             "disable_admin_override_script": "",
             "reboot_script": "",
         },
-        "ui": {"fullscreen": "true", "organization_name": "Grace Marketplace"},
+        "ui": {"fullscreen": "true", "organization_name": "Grace Marketplace",
+               "celebration": "true"},
         "maintenance": {"admin_user": ""},
     })
     read = cfg.read(_CONFIG_PATHS)
@@ -216,7 +219,95 @@ ENTRY_FG    = "#f9fafb"
 BTN_BG      = ACCENT
 BTN_FG      = "#ffffff"
 
+CONFETTI_COLORS = ("#f87171", "#fbbf24", "#34d399", "#60a5fa",
+                   "#a78bfa", "#f472b6", "#fef3c7")
+
+# How long the "Starting session…" confetti is guaranteed to stay on screen
+# before the client moves on (and switches the display to the guest desktop).
+CELEBRATION_HOLD_SECONDS = 3.0
+
 PAD = 20
+
+
+class ConfettiBurst:
+    """
+    Confetti fired from two cannons in the bottom corners of a Canvas.
+
+    Pure tkinter canvas animation. It stops on its own once every piece has
+    fallen off screen, or silently as soon as the canvas is destroyed (e.g.
+    the screen changes via _clear), so callers never need to cancel it.
+    """
+
+    FRAME_MS = 33
+    MAX_FRAMES = 150   # ~5 s hard stop
+
+    def __init__(self, canvas, width, height, count=140):
+        self.canvas = canvas
+        self.height = height
+        self.frame = 0
+        # Tune the physics to a 1280x800 reference screen so the arc looks
+        # the same on any resolution.
+        self.scale = height / 800.0
+        self.gravity = 0.5 * self.scale
+        self.pieces = []
+        for i in range(count):
+            from_left = i % 2 == 0
+            x = 0 if from_left else width
+            vx = random.uniform(4, 14) * (width / 1280.0)
+            self.pieces.append({
+                "x": x, "y": height,
+                "vx": vx if from_left else -vx,
+                "vy": -random.uniform(17, 29) * self.scale,
+                "size": random.uniform(6, 12) * max(self.scale, 0.6),
+                "angle": random.uniform(0, math.pi),
+                "spin": random.uniform(-0.3, 0.3),
+                "wobble": random.uniform(0, math.tau),
+                "item": canvas.create_polygon(0, 0, 0, 0, 0, 0, 0, 0,
+                                              fill=random.choice(CONFETTI_COLORS),
+                                              outline=""),
+            })
+
+    def start(self):
+        self._step()
+
+    def _step(self):
+        try:
+            if not self.canvas.winfo_exists():
+                return
+            self.frame += 1
+            alive = []
+            max_fall = 4.5 * self.scale
+            for p in self.pieces:
+                p["vx"] *= 0.97
+                p["vy"] = min(p["vy"] + self.gravity, max_fall)
+                p["wobble"] += 0.15
+                p["x"] += p["vx"] + math.sin(p["wobble"]) * 1.2 * self.scale
+                p["y"] += p["vy"]
+                p["angle"] += p["spin"]
+                if p["y"] > self.height + 30:
+                    self.canvas.delete(p["item"])
+                    continue
+                # A flat rectangle whose apparent height flutters, which reads
+                # as a paper strip tumbling in the air.
+                hw = p["size"] / 2
+                hh = hw * 0.5 * abs(math.cos(p["wobble"] * 1.7)) + 1
+                c, s_ = math.cos(p["angle"]), math.sin(p["angle"])
+                pts = []
+                for dx, dy in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)):
+                    pts += (p["x"] + dx * c - dy * s_, p["y"] + dx * s_ + dy * c)
+                self.canvas.coords(p["item"], *pts)
+                alive.append(p)
+            self.pieces = alive
+            self.canvas.tag_raise("label")
+            if alive and self.frame < self.MAX_FRAMES:
+                self.canvas.after(self.FRAME_MS, self._step)
+            else:
+                for p in alive:
+                    self.canvas.delete(p["item"])
+        except tk.TclError:
+            # Canvas destroyed mid-frame — the screen moved on.
+            pass
+
 
 # ---------------------------------------------------------------------------
 # Main application
@@ -258,6 +349,8 @@ class GraceLabClient:
         self._sync_interval = int(cfg.get("session", "sync_interval_seconds"))
         self._org_name = cfg.get("ui", "organization_name")
         self._fullscreen = cfg.getboolean("ui", "fullscreen")
+        self._celebration = cfg.getboolean("ui", "celebration")
+        self._celebration_until = 0      # epoch until which the confetti holds the screen
 
         self._open_lab_mode = False
         self._tos_text = ""
@@ -610,12 +703,33 @@ class GraceLabClient:
     def _show_session_starting(self):
         self._set_state(self.SESSION_STARTING)
         self._clear()
-        outer = tk.Frame(self._main, bg=BG)
-        outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
-        tk.Label(outer, text="Starting session…", bg=BG, fg=FG, font=self._f_heading).pack()
+        if not self._celebration:
+            outer = tk.Frame(self._main, bg=BG)
+            outer.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+            tk.Label(outer, text="Starting session…", bg=BG, fg=FG, font=self._f_heading).pack()
+            return
+
+        # Draw the text on a canvas (not a Label) so the confetti can fly
+        # around it — tkinter widgets can't have transparent backgrounds.
+        width = max(self._main.winfo_width(), 1)
+        height = max(self._main.winfo_height(), 1)
+        canvas = tk.Canvas(self._main, bg=BG, highlightthickness=0, bd=0)
+        canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+        canvas.create_text(width / 2, height / 2 - 24, text="Starting session…",
+                           fill=FG, font=self._f_heading, tags="label")
+        canvas.create_text(width / 2, height / 2 + 28, text="Have a great session!",
+                           fill=SUCCESS_FG, font=self._f_body, tags="label")
+        self._celebration_until = time.time() + CELEBRATION_HOLD_SECONDS
+        ConfettiBurst(canvas, width, height).start()
 
     def _start_session_active(self):
         """Call instead of _show_session_active when a session is newly started or extended."""
+        # Let the "Starting session…" confetti finish before the session
+        # screen replaces it (and the display switches to the guest desktop).
+        hold = self._celebration_until - time.time()
+        if self._state == self.SESSION_STARTING and hold > 0:
+            self.root.after(int(hold * 1000), self._start_session_active)
+            return
         self._warning_fired = False
         self._show_session_active()
 

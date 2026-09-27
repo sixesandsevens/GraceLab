@@ -371,3 +371,4 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 | 0.4.0 | Open-mode session timer fix; safer session teardown with verified/retried `dm-tool` display switching; update-lock session admission (a queued update blocks new sessions until installed, with safe reconciliation of lost reports and mismatched versions); station maintenance mode with a verified admin override and automatic lease refresh; remote GraceLab reset and reboot via a replay-safe one-shot command channel |
 | 0.4.1 | Fix open-mode desktop countdown never appearing: freshly started open sessions now write the guest timer file |
 | 0.4.2 | Announcement banner on the Begin Session screen, managed from Settings; Delete station available for any station without an active session |
+| 0.4.3 | Confetti celebration on the "Starting session…" screen (toggle with `[ui] celebration`) |

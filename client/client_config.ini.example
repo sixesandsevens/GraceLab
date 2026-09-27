@@ -32,6 +32,8 @@ reset_script = scripts/reset_guest_home.sh
 fullscreen = true
 # Organization name shown on the idle screen (overridden by server config if reachable)
 organization_name = Grace Marketplace
+# Confetti on the "Starting session…" screen (holds it ~3 s). Set to false to skip.
+celebration = true
 
 [updates]
 # Whether the client will check for and install updates.
