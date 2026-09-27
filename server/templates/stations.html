@@ -140,11 +140,11 @@
           </form>
           {% endif %}
         {% endif %}
-        {% if st.status not in ('in_use', 'available') and not st.maintenance_active and not st.maintenance_requested and not has_pending_command %}
+        {% if not st.current_session_id and st.status != 'in_use' %}
         <form method="post" action="{{ url_for('stations.delete_station', station_id=st.id) }}" style="display:inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-danger"
-            onclick="return confirm('Permanently delete {{ st.display_name }}? This cannot be undone.')">Delete</button>
+            onclick="return confirm('Permanently delete {{ st.display_name }}? This cannot be undone.{% if st.status != 'offline' %} The station is still connected and will stop working until it is re-registered.{% endif %}')">Delete</button>
         </form>
         {% endif %}
       </td>

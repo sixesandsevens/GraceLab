@@ -110,6 +110,10 @@ class SettingsForm(FlaskForm):
         "Open Session Duration (minutes)",
         validators=[Optional(), NumberRange(min=15, max=480)],
     )
+    announcement_text = TextAreaField(
+        "Announcement",
+        validators=[Optional(), Length(0, 300)],
+    )
     tos_text = TextAreaField(
         "Terms of Service",
         validators=[Optional(), Length(0, 2000)],
@@ -142,6 +146,7 @@ def settings():
         form.client_beta_version.data = Setting.get("client_beta_version", "")
         form.open_lab_mode.data = Setting.get_bool("open_lab_mode", False)
         form.open_session_duration_minutes.data = Setting.get_int("open_session_duration_minutes", 120)
+        form.announcement_text.data = Setting.get("announcement_text", "")
         form.tos_text.data = Setting.get("tos_text", "")
 
     if form.validate_on_submit():
@@ -168,6 +173,7 @@ def settings():
             ("client_beta_version",          form.client_beta_version.data or ""),
             ("open_lab_mode",               "true" if form.open_lab_mode.data else "false"),
             ("open_session_duration_minutes", str(form.open_session_duration_minutes.data or 120)),
+            ("announcement_text",           (form.announcement_text.data or "").strip()),
             ("tos_text",                    form.tos_text.data or ""),
         ]
         for key, new_val in pairs:
@@ -187,6 +193,19 @@ def settings():
         return redirect(url_for("admin.settings"))
 
     return render_template("settings.html", form=form)
+
+
+@admin_bp.route("/announcement/clear", methods=["POST"])
+@login_required
+@_admin_required
+def clear_announcement():
+    old_val = Setting.get("announcement_text", "")
+    if old_val:
+        Setting.query.filter_by(key="announcement_text").update({"value": ""})
+        log_audit("settings_changed", details={"changed": {"announcement_text": {"from": old_val, "to": ""}}})
+        db.session.commit()
+        flash("Announcement removed. Stations will clear it within a minute.", "success")
+    return redirect(url_for("admin.settings"))
 
 
 # ---------------------------------------------------------------------------

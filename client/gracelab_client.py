@@ -44,7 +44,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.4.1"
+CLIENT_VERSION = "0.4.2"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -261,6 +261,7 @@ class GraceLabClient:
 
         self._open_lab_mode = False
         self._tos_text = ""
+        self._announcement = ""
         self._open_session_duration_minutes = 120
         self._is_open_session = False
         self._tos_callback = None
@@ -369,6 +370,9 @@ class GraceLabClient:
         tk.Label(outer, text="Computer Lab", bg=BG, fg=FG_MUTED,
                  font=self._f_body).pack(pady=(0, 40))
 
+        if self._announcement:
+            self._build_announcement_banner(outer)
+
         if self._open_lab_mode:
             self._build_idle_open(outer)
         else:
@@ -376,6 +380,14 @@ class GraceLabClient:
 
         tk.Label(self._main, text=f"v{CLIENT_VERSION}", bg=BG, fg="#374151",
                  font=self._f_small).place(relx=1.0, rely=1.0, anchor=tk.SE, x=-10, y=-10)
+
+    def _build_announcement_banner(self, outer):
+        banner = tk.Frame(outer, bg=WARN_BG, padx=24, pady=12)
+        banner.pack(pady=(0, 30))
+        tk.Label(banner, text="ANNOUNCEMENT", bg=WARN_BG, fg=WARN_FG,
+                 font=self._f_small).pack()
+        tk.Label(banner, text=self._announcement, bg=WARN_BG, fg=WARN_FG,
+                 font=self._f_body, wraplength=640, justify=tk.CENTER).pack(pady=(4, 0))
 
     def _build_idle_open(self, outer):
         tk.Label(outer, text="Welcome", bg=BG, fg=FG,
@@ -1951,6 +1963,7 @@ class GraceLabClient:
                     self._org_name = result["organization_name"]
                 self._open_lab_mode = result.get("open_lab_mode", False)
                 self._tos_text = result.get("tos_text", "")
+                self._announcement = (result.get("announcement") or "").strip()
                 self._open_session_duration_minutes = result.get(
                     "open_session_duration_minutes", 120
                 )

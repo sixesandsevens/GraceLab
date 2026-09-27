@@ -24,6 +24,24 @@
     {% for e in form.ticket_footer.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
   </div>
 
+  <h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Announcement</h3>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem">Shown as a banner on every station's Begin Session screen, e.g. "Printing has been fixed!". Stations pick up changes within a minute. Leave blank for no announcement.</p>
+
+  <div class="form-group">
+    {{ form.announcement_text.label(class="form-label") }}
+    {{ form.announcement_text(class="form-control", rows=3, maxlength=300, placeholder="Printing has been fixed!") }}
+    <div class="form-hint">Up to 300 characters. Click Save Settings below to publish a new or changed announcement.</div>
+    {% for e in form.announcement_text.errors %}<div class="form-error">{{ e }}</div>{% endfor %}
+  </div>
+
+  {% if form.announcement_text.data %}
+  <div class="form-group">
+    <button type="submit" class="btn btn-sm btn-danger" formnovalidate
+      formaction="{{ url_for('admin.clear_announcement') }}"
+      onclick="return confirm('Remove the announcement from all stations?')">Remove Announcement</button>
+  </div>
+  {% endif %}
+
   <h3 style="margin-top:2rem;margin-bottom:1rem;font-size:1rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Sessions</h3>
 
   <div class="form-group">

@@ -213,6 +213,7 @@ def station_config(station):
         "open_lab_mode": Setting.get_bool("open_lab_mode", False),
         "open_session_duration_minutes": Setting.get_int("open_session_duration_minutes", 120),
         "tos_text": Setting.get("tos_text", ""),
+        "announcement": Setting.get("announcement_text", ""),
         "update_pending": bool(station.desired_client_version),
         "update_status": station.client_update_status,
         "desired_client_version": station.desired_client_version,
