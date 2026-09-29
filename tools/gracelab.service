@@ -13,8 +13,10 @@ EnvironmentFile=-/etc/gracelab/server.env
 # Fallback if EnvironmentFile is missing — replace before going live:
 Environment=SECRET_KEY=CHANGE_ME_BEFORE_PRODUCTION
 
+# 2 workers so one request stalled on an SD-card write doesn't hold up every
+# station's heartbeat. Rate limits are per worker — see README "Run (production)".
 ExecStart=/opt/gracelab/GraceLab/server/venv/bin/gunicorn \
-    -w 1 \
+    -w 2 \
     -b 127.0.0.1:5000 \
     --access-logfile /var/log/gracelab/access.log \
     --error-logfile  /var/log/gracelab/error.log \

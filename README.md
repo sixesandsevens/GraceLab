@@ -136,12 +136,14 @@ FLASK_ENV=development python3 app.py
 
 ### Run (production — gunicorn + systemd)
 
-> **Single worker required.** Flask-Limiter uses in-memory storage. Running multiple workers gives each worker its own counter, so the effective limit is multiplied by the worker count. Use `-w 1` until the limiter is backed by Redis or Memcached.
-
 ```bash
 SECRET_KEY="$(openssl rand -hex 32)" \
-gunicorn -w 1 -b 127.0.0.1:5000 app:app
+gunicorn -w 2 -b 127.0.0.1:5000 app:app
 ```
+
+> **Why 2 workers, and what it costs.** A second worker keeps the server answering while one request is stalled — on a Raspberry Pi, SD-card writes can block for seconds (notably during the daily apt run), and with a single worker every station's heartbeat queues behind that one request and stations can flicker offline.
+>
+> The trade-off: the login rate limit (Flask-Limiter) and the kiosk code-entry throttle both keep their counters in each worker's memory, not shared. With 2 workers the effective limits are roughly doubled and not exact — up to ~20 login attempts/minute (~60/hour) per address, and 5–9 wrong codes before a station's cooldown, depending on which worker handles each request. That's an accepted trade-off for a private-LAN deployment. For exact limits, run `-w 1` (at the cost of the stall resilience above), or move both counters to shared storage (Flask-Limiter supports Redis/Memcached; the kiosk throttle in `api.py` would need the same).
 
 A sample systemd unit is in `tools/gracelab.service`. Install it:
 
@@ -400,8 +402,8 @@ Per-station options, written by the installer (see `client/client_config.ini.exa
 - **Network lockdown**: `install-network-lockdown.sh` denies every `org.freedesktop.NetworkManager.*` polkit action to `gracelab` and `guestlab`, so a guest can't knock a station offline (which would also cut it off from dashboard recovery). Every other account keeps the distro defaults. It writes both `/etc/polkit-1/localauthority/90-mandatory.d/90-gracelab-network.pkla` (polkit 0.105 / Mint 21) and `/etc/polkit-1/rules.d/10-gracelab-network.rules` (polkit 121+ / Mint 22); each polkit version ignores the other's file. It's applied at install and re-asserted by the session start/reset hooks. The network applet is also hidden from the guest tray (`template-home/.config/autostart/nm-applet.desktop`).
 - Station tokens are hashed with Werkzeug's `generate_password_hash` (bcrypt). Tokens are shown once at registration; if lost, rotate from the Stations page.
 - The admin panel requires the `admin` role. Staff accounts use the `staff` role and cannot access audit logs, settings, or token rotation.
-- Login attempts are rate-limited to 10/minute and 30/hour via Flask-Limiter.
-- Session code entry at the kiosk is throttled to 5 failures per station in a 5-minute window before a 30-second cooldown.
+- Login attempts are rate-limited to 10/minute and 30/hour via Flask-Limiter (per gunicorn worker — roughly doubled with the default 2 workers; see "Run (production)").
+- Session code entry at the kiosk is throttled to 5 failures per station in a 5-minute window before a 30-second cooldown (also per worker).
 
 ---
 
