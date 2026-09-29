@@ -20,11 +20,6 @@ gl_clear_guest_logout_flags
 # Kill all guestlab processes and terminate the login session.
 gl_kill_guest
 
-# Verify no guestlab processes remain (warn only — don't fail).
-if pgrep -u "$GUEST_USER" > /dev/null 2>&1; then
-    gl_log WARN "end_guest_session: some guestlab processes are still running after kill"
-fi
-
 # Lock the account so it cannot be logged into between sessions.
 passwd -l "$GUEST_USER" 2>/dev/null || true
 

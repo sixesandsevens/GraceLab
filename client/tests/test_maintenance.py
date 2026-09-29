@@ -855,7 +855,7 @@ class HandleRebootCommandTests(unittest.TestCase):
 class RunScriptRequiredTests(unittest.TestCase):
     """1. _run_script's required=True: missing/unconfigured must fail, not
     silently succeed — without changing the default (required=False) used
-    by every other lifecycle script call site."""
+    by optional hooks. Start/end/reset/reboot explicitly require their hooks."""
 
     def test_required_false_missing_script_still_skips_successfully(self):
         client = _make_client()

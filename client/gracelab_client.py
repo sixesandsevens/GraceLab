@@ -51,7 +51,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.4.6"
+CLIENT_VERSION = "0.4.7"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -696,7 +696,7 @@ class GraceLabClient:
         self._write_guest_timer_file()
 
         start_script = self.cfg.get("paths", "start_script")
-        start_ok = self._run_script(start_script, "start", failure_event="start_script_failed")
+        start_ok = self._run_script(start_script, "start", failure_event="start_script_failed", required=True)
         if not start_ok:
             try:
                 self.api.end(session_id, "failed")
@@ -1146,7 +1146,7 @@ class GraceLabClient:
             self._write_guest_timer_file()
             start_script = self.cfg.get("paths", "start_script")
             start_ok = self._run_script(start_script, "start",
-                                        failure_event="start_script_failed")
+                                        failure_event="start_script_failed", required=True)
             if start_ok:
                 self.root.after(0, self._start_session_active)
                 self.root.after(self._sync_interval * 1000, self._sync_tick)
@@ -1216,6 +1216,11 @@ class GraceLabClient:
             return
 
         if not result.get("ok"):
+            if result.get("error") in ("station_needs_attention", "station_out_of_service"):
+                self.root.after(0, lambda: self._show_needs_attention(
+                    "This station is unavailable. Please ask staff for help."
+                ))
+                return
             if result.get("error") == "station_maintenance":
                 self._maintenance_requested = True
                 self.root.after(0, self._enter_maintenance)
@@ -1248,6 +1253,11 @@ class GraceLabClient:
         if not start_result.get("ok"):
             err = start_result.get("error", "unknown")
             log.warning("Start rejected: %s", err)
+            if err in ("station_needs_attention", "station_out_of_service"):
+                self.root.after(0, lambda: self._show_needs_attention(
+                    "This station is unavailable. Please ask staff for help."
+                ))
+                return
             if err == "station_maintenance":
                 self._maintenance_requested = True
                 self.root.after(0, self._enter_maintenance)
@@ -1270,7 +1280,7 @@ class GraceLabClient:
 
         start_script = self.cfg.get("paths", "start_script")
         start_ok = self._run_script(start_script, "start",
-                                    failure_event="start_script_failed")
+                                    failure_event="start_script_failed", required=True)
         if not start_ok:
             # Report failure and immediately end the session so the server
             # doesn't keep the station marked in_use.
@@ -1695,11 +1705,9 @@ class GraceLabClient:
         mark the station needs_attention. Does nothing (returns True) if
         path is empty or the file doesn't exist — UNLESS required=True, in
         which case a missing/unconfigured script IS the failure. Default
-        False preserves the existing optional-script semantics used by
-        start/end/reset/override scripts; required=True is for scripts whose
-        absence must never look like a silent no-op success (currently just
-        reboot — "no reboot script configured" must not be reported as a
-        completed reboot).
+        False preserves optional hooks. Start, end, reset and reboot all
+        pass required=True: missing safety-critical hooks must block use
+        of the station rather than silently report success.
 
         script_path may be a plain path or a command line (e.g. "sudo /path/script.sh").
         Parsed with shlex so sudoers entries work without shell=True.
@@ -1717,7 +1725,18 @@ class GraceLabClient:
             log.info("No %s script configured — skipping.", label)
             return True
 
-        cmd = shlex.split(script_path)
+        try:
+            cmd = shlex.split(script_path)
+            if not cmd or (cmd[0] == "sudo" and len(cmd) < 2):
+                raise ValueError("empty command or missing sudo command")
+        except ValueError as e:
+            msg = f"{label} script configuration is invalid: {e}"
+            log.error("%s", msg)
+            try:
+                self.api.event(self._session_id, failure_event, msg)
+            except APIError:
+                pass
+            return False
         executable = cmd[0]
         file_to_check = cmd[1] if executable == "sudo" and len(cmd) > 1 else executable
 
@@ -1804,7 +1823,7 @@ class GraceLabClient:
         end_script = self.cfg.get("paths", "end_script")
         log.info("Session %s: guest termination script starting.", sid)
         end_ok = self._run_script(end_script, "end",
-                                  failure_event="end_script_failed")
+                                  failure_event="end_script_failed", required=True)
         log.info(
             "Session %s: guest termination script %s.",
             sid, "completed" if end_ok else "failed",
@@ -1851,7 +1870,7 @@ class GraceLabClient:
             pass
 
         reset_ok = self._run_script(reset_script, "reset",
-                                    failure_event="reset_script_failed")
+                                    failure_event="reset_script_failed", required=True)
 
         if reset_ok:
             try:
@@ -2053,7 +2072,7 @@ class GraceLabClient:
         self._save_session_state()
         self._write_guest_timer_file()
         start_script = self.cfg.get("paths", "start_script")
-        start_ok = self._run_script(start_script, "start", failure_event="start_script_failed")
+        start_ok = self._run_script(start_script, "start", failure_event="start_script_failed", required=True)
         if start_ok:
             self.root.after(0, self._start_session_active)
             self.root.after(self._sync_interval * 1000, self._sync_tick)
@@ -2272,11 +2291,11 @@ class GraceLabClient:
         # normal session teardown — an admin may have left guestlab logged
         # in, or the home directory dirty, while working locally.
         end_script = self.cfg.get("paths", "end_script")
-        end_ok = self._run_script(end_script, "end", failure_event="end_script_failed")
+        end_ok = self._run_script(end_script, "end", failure_event="end_script_failed", required=True)
         reset_ok = True
         if end_ok:
             reset_script = self.cfg.get("paths", "reset_script")
-            reset_ok = self._run_script(reset_script, "reset", failure_event="reset_script_failed")
+            reset_ok = self._run_script(reset_script, "reset", failure_event="reset_script_failed", required=True)
 
         if not switch_ok:
             log.error("Maintenance exit: display recovery to gracelab failed after retries.")
@@ -2517,7 +2536,7 @@ class GraceLabClient:
         helper, or a failed systemctl call all silently clear the server's
         command with nothing having actually happened.
 
-        required=True: unlike the optional lifecycle scripts, "no reboot
+        required=True: as with start/end/reset, "no reboot
         script configured" must not be reported as a completed reboot.
         """
         log.info("Reboot command received (id=%s).", command_id)

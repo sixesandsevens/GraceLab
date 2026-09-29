@@ -17,11 +17,30 @@ gl_log() {
 }
 
 gl_kill_guest() {
-    if id "$GUEST_USER" &>/dev/null; then
-        pkill -KILL -u "$GUEST_USER" 2>/dev/null || true
-        sleep 1
-        loginctl terminate-user "$GUEST_USER" 2>/dev/null || true
+    local attempt result
+    if ! id "$GUEST_USER" &>/dev/null; then
+        gl_log ERROR "guest account ${GUEST_USER} is missing"
+        return 1
     fi
+    pkill -KILL -u "$GUEST_USER" 2>/dev/null || true
+    loginctl terminate-user "$GUEST_USER" 2>/dev/null || true
+    # Never wipe a home or report a successful end while guest processes
+    # remain. Allow the display manager a bounded interval to reap them.
+    for attempt in 1 2 3 4 5; do
+        sleep 1
+        if pgrep -u "$GUEST_USER" >/dev/null 2>&1; then
+            pkill -KILL -u "$GUEST_USER" 2>/dev/null || true
+        else
+            result=$?
+            if [[ "$result" -eq 1 ]]; then
+                return 0
+            fi
+            gl_log ERROR "could not verify guest process termination"
+            return 1
+        fi
+    done
+    gl_log ERROR "guest processes remain after termination; cleanup blocked"
+    return 1
 }
 
 
