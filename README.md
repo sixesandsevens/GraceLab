@@ -2,6 +2,9 @@
 
 Computer lab session management system for Grace Marketplace. Staff issue timed session codes at the front desk; the fullscreen kiosk client on each workstation validates them, manages the guest desktop, and resets the machine between sessions.
 
+The [0.4.7 hardening rollout guide](docs/hardening-0.4.7.md) covers the first
+test-station release, compatibility, acceptance checks, rollback, and remaining work.
+
 ---
 
 ## Architecture

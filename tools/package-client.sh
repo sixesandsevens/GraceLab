@@ -4,6 +4,7 @@
 # Usage:
 #   sudo ./tools/package-client.sh            # version from gracelab_client.py
 #   sudo ./tools/package-client.sh --version 0.2.1
+#   ./tools/package-client.sh --output-dir /path/to/staging
 #
 # Output:
 #   /var/lib/gracelab/updates/gracelab-client-<version>.tar.gz
@@ -18,8 +19,6 @@ OUTPUT_DIR="/var/lib/gracelab/updates"
 info() { printf '\e[32m[INFO]\e[0m  %s\n' "$*"; }
 die()  { printf '\e[31m[ERR]\e[0m   %s\n' "$*" >&2; exit 1; }
 
-[[ "$(id -u)" -eq 0 ]] || die "Run as root: sudo ./tools/package-client.sh"
-
 # ---------------------------------------------------------------------------
 # Determine version
 # ---------------------------------------------------------------------------
@@ -28,7 +27,8 @@ VERSION=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --version) VERSION="$2"; shift 2 ;;
+        --version) [[ $# -ge 2 ]] || die "--version requires a value"; VERSION="$2"; shift 2 ;;
+        --output-dir) [[ $# -ge 2 && -n "$2" ]] || die "--output-dir requires a directory"; OUTPUT_DIR="$2"; shift 2 ;;
         *) die "Unknown argument: $1" ;;
     esac
 done
@@ -43,6 +43,7 @@ print(m.group(1) if m else '')
 fi
 
 [[ -n "$VERSION" ]] || die "Could not detect CLIENT_VERSION. Use --version <ver>."
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+[-a-z0-9.]*$ ]] || die "Invalid version: $VERSION"
 
 OUTFILE="${OUTPUT_DIR}/gracelab-client-${VERSION}.tar.gz"
 
@@ -50,16 +51,16 @@ info "Packaging GraceLab client v${VERSION}"
 info "Source:  ${REPO_CLIENT_DIR}"
 info "Output:  ${OUTFILE}"
 
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR" || die "Cannot create output directory. Use --output-dir with a writable staging directory."
 
 # ---------------------------------------------------------------------------
 # Stage files
 # ---------------------------------------------------------------------------
 
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+PACKAGE_TMP="$(mktemp -d)"
+trap 'rm -rf "$PACKAGE_TMP"' EXIT
 
-STAGE="${TMPDIR}/pkg"
+STAGE="${PACKAGE_TMP}/pkg"
 mkdir -p "${STAGE}/scripts"
 mkdir -p "${STAGE}/updater"
 
@@ -115,4 +116,5 @@ info "Done."
 info "  Package:  ${OUTFILE}"
 info "  SHA256:   ${CHECKSUM}"
 printf '\n'
-printf 'Next step: in Settings → Client Updates, set Stable Version to: %s\n' "$VERSION"
+printf 'Package built. Upload it when ready; this command does not queue stations.\n'
+printf 'For a test-station rollout, disable global auto-updates before publishing Stable Version %s.\n' "$VERSION"
