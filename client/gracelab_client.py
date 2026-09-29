@@ -29,6 +29,11 @@ States:
       only honored the next time the client would otherwise return to idle.
       MAINTENANCE_ACTIVE outranks the update lock: see _return_to_available_state.)
   MAINTENANCE_ACTIVE -> RESETTING -> IDLE/UPDATE_*  (server clears the request)
+
+  OFFLINE -> MAINTENANCE_ACTIVE  (Staff sign-in, local maintenance — see
+      _start_local_maintenance. Not ended by the server; ends on Return to
+      GraceLab or once no admin session has been active for
+      LOCAL_MAINTENANCE_IDLE_SECONDS.)
 """
 
 import configparser
@@ -46,7 +51,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.4.4"
+CLIENT_VERSION = "0.4.5"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -336,6 +341,12 @@ class GraceLabClient:
     # (that would mean a sudo call every ~30s).
     ADMIN_OVERRIDE_REFRESH_SECONDS = 45 * 60
 
+    # Locally-started maintenance (Staff sign-in on the Server Offline
+    # screen) returns the display to GraceLab once no admin session has been
+    # in the foreground for this long — so a guest pressing the button leaves
+    # the station at the login screen for minutes, not until someone visits.
+    LOCAL_MAINTENANCE_IDLE_SECONDS = 180
+
     def __init__(self, root, cfg):
         self.root = root
         self.cfg = cfg
@@ -394,6 +405,15 @@ class GraceLabClient:
         self._maintenance_confirmed = False
         self._last_override_refresh = 0
         self._last_handled_command_id = None
+
+        # Local maintenance: entered from the Server Offline screen without
+        # the server's involvement (it's unreachable), so it must not be
+        # auto-exited just because a reconnected server isn't requesting
+        # maintenance — the admin is probably fixing that very connection.
+        # Ends on Return to GraceLab or after LOCAL_MAINTENANCE_IDLE_SECONDS
+        # with no admin session active (see _check_local_maintenance_idle).
+        self._local_maintenance = False
+        self._local_admin_seen_at = 0
 
         self._build_ui()
         self._show_idle()
@@ -883,6 +903,16 @@ class GraceLabClient:
                  text="This computer cannot reach the GraceLab server.\nPlease ask staff for help.",
                  bg=BG, fg=FG_MUTED, font=self._f_body, justify=tk.CENTER).pack(pady=20)
 
+        # Deliberately understated: it only opens the Linux login screen —
+        # the admin's own password is the real gate (see _start_local_maintenance).
+        tk.Button(
+            self._main, text="Staff sign-in",
+            font=self._f_small, bg=BG, fg=FG_MUTED,
+            activebackground=BG, activeforeground=FG,
+            relief=tk.FLAT, bd=0, highlightthickness=0, cursor="hand2",
+            command=self._start_local_maintenance,
+        ).place(relx=0.0, rely=1.0, anchor=tk.SW, x=10, y=-10)
+
     def _show_recovering(self):
         self._set_state(self.IDLE)
         self._clear()
@@ -947,6 +977,19 @@ class GraceLabClient:
         tk.Label(outer, text="Maintenance Mode", bg=BG, fg=FG, font=self._f_heading).pack(pady=(0, 16))
         tk.Label(outer, text="This computer is temporarily unavailable for maintenance.",
                  bg=BG, fg=FG_MUTED, font=self._f_body).pack()
+
+        if self._local_maintenance:
+            btn = tk.Button(
+                outer, text="Return to GraceLab",
+                font=self._f_btn, bg=BTN_BG, fg=BTN_FG,
+                activebackground=ACCENT_DARK, activeforeground=BTN_FG,
+                relief=tk.FLAT, cursor="hand2", padx=40, pady=14,
+            )
+            # Disable on first click: the state change lands via after(0), so
+            # a fast double-click could otherwise start two exit threads.
+            btn.configure(command=lambda: (btn.configure(state=tk.DISABLED),
+                                           self._exit_maintenance()))
+            btn.pack(pady=(30, 0))
 
     def _return_to_available_state(self):
         """
@@ -1847,6 +1890,8 @@ class GraceLabClient:
 
     def _heartbeat_tick(self):
         self._check_local_maintenance_exit_request()
+        if self._state == self.MAINTENANCE_ACTIVE and self._local_maintenance:
+            threading.Thread(target=self._check_local_maintenance_idle, daemon=True).start()
         threading.Thread(target=self._send_heartbeat, daemon=True).start()
         if self._state == self.IDLE:
             threading.Thread(target=self._fetch_server_config, daemon=True).start()
@@ -1910,7 +1955,7 @@ class GraceLabClient:
                     self.root.after(0, lambda s=station_status: self._show_needs_attention(
                         f"This station has been marked {s.replace('_', ' ')}."
                     ))
-                elif not self._maintenance_requested:
+                elif not self._maintenance_requested and not self._local_maintenance:
                     log.info("Maintenance exit requested by server — returning to GraceLab.")
                     self.root.after(0, self._exit_maintenance)
                 elif (
@@ -2140,6 +2185,13 @@ class GraceLabClient:
                                "Admin override could not be verified active.")
             except APIError:
                 pass
+            if self._local_maintenance:
+                # Nothing was switched, so just go back to waiting for the
+                # server — a needs_attention screen can't be cleared while
+                # offline, which would strand the station.
+                self._local_maintenance = False
+                self.root.after(0, self._show_offline)
+                return
             self.root.after(0, lambda: self._show_needs_attention(
                 "Could not enter maintenance mode safely. Please ask staff for help."
             ))
@@ -2148,8 +2200,16 @@ class GraceLabClient:
         log.info("Admin override verified active.")
         self._last_override_refresh = time.time()
 
-        log.info("Maintenance: switching display to the admin session.")
-        switch_ok = self._switch_to_admin_session(context="enter-maintenance")
+        if self._local_maintenance:
+            # Anyone at the console can press Staff sign-in, so never jump
+            # straight into admin_user's session (it may be logged in and
+            # unlocked) — the greeter always asks for a password.
+            log.info("Local maintenance: switching display to the LightDM greeter.")
+            switch_ok = self._dm_tool_switch(["switch-to-greeter"],
+                                             context="enter-local-maintenance")
+        else:
+            log.info("Maintenance: switching display to the admin session.")
+            switch_ok = self._switch_to_admin_session(context="enter-maintenance")
         if switch_ok:
             log.info("Maintenance: display switch succeeded — maintenance confirmed active.")
             self._maintenance_confirmed = True
@@ -2179,6 +2239,7 @@ class GraceLabClient:
         if self._state != self.MAINTENANCE_ACTIVE:
             return
         log.info("Maintenance exit requested — returning to GraceLab.")
+        self._local_maintenance = False
         self.root.after(0, self._show_resetting)
         threading.Thread(target=self._do_exit_maintenance, daemon=True).start()
 
@@ -2311,6 +2372,74 @@ class GraceLabClient:
                            "Admin override lease refresh failed.")
         except APIError:
             pass
+
+    # ------------------------------------------------------------------
+    # Local maintenance — Staff sign-in from the Server Offline screen
+    # ------------------------------------------------------------------
+
+    def _start_local_maintenance(self):
+        """
+        Offline -> maintenance without the server, so an admin can repair a
+        station that can't reach it (e.g. Wi-Fi lost) at the console. This
+        reuses the normal maintenance entry: the admin override pauses
+        watchdog/lockdown and the display goes to [maintenance] admin_user
+        or the LightDM greeter. Like server-requested maintenance, GraceLab
+        checks no password itself — LightDM's login is the authentication,
+        and the kiosk accounts can't change networking anyway (polkit), so
+        reaching the greeter grants a guest nothing.
+        """
+        if self._state != self.OFFLINE:
+            return
+        log.info("Staff sign-in pressed on the offline screen — entering local maintenance.")
+        self._local_maintenance = True
+        self._local_admin_seen_at = time.time()
+        self._enter_maintenance()
+
+    def _seat_active_user(self):
+        """
+        (user, session_class) of the session in the foreground on seat0 —
+        class is "user" for a real login and "greeter" for the LightDM login
+        screen. (None, None) if loginctl can't tell us. Unprivileged.
+        """
+        try:
+            sid = subprocess.run(
+                ["loginctl", "show-seat", "seat0", "-p", "ActiveSession", "--value"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+            if not sid:
+                return None, None
+            out = subprocess.run(
+                ["loginctl", "show-session", sid, "-p", "Name", "-p", "Class"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout
+        except Exception as e:
+            log.warning("loginctl seat query failed: %s", e)
+            return None, None
+        props = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+        return props.get("Name") or None, props.get("Class") or None
+
+    def _check_local_maintenance_idle(self):
+        """
+        Heartbeat-paced (background thread): end local maintenance once no
+        admin session has been in the foreground for
+        LOCAL_MAINTENANCE_IDLE_SECONDS. Anything other than a real login by
+        an account that isn't gracelab/guestlab — the greeter, the kiosk
+        itself, or an unreadable seat — counts as idle, so a guest who
+        pressed Staff sign-in, a failed display switch, or an admin who
+        walked away all come back to GraceLab on their own.
+        """
+        if not (self._state == self.MAINTENANCE_ACTIVE and self._local_maintenance):
+            return
+        user, session_class = self._seat_active_user()
+        now = time.time()
+        if session_class == "user" and user not in (None, "gracelab", "guestlab"):
+            self._local_admin_seen_at = now
+            return
+        idle = now - self._local_admin_seen_at
+        if idle >= self.LOCAL_MAINTENANCE_IDLE_SECONDS:
+            log.info("Local maintenance: no admin session for %ds (seat shows %s/%s) — "
+                     "returning to GraceLab.", idle, user, session_class)
+            self.root.after(0, self._exit_maintenance)
 
     # ------------------------------------------------------------------
     # Station command channel (Patch C) — reset_gracelab | reboot

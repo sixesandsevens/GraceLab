@@ -266,6 +266,8 @@ sudo /opt/gracelab-client/current/scripts/request_maintenance_exit.sh
 ```
 Runnable by any account in the `gracelab-admin` group (add one with `usermod -aG gracelab-admin <username>`; `--admin-user` at install time does this automatically if the account already exists). Wire it to a launcher or menu entry in that account's session as you prefer.
 
+**Staff sign-in (station can't reach the server)**: the "Server Offline" screen has a small **Staff sign-in** link in the bottom-left corner. It enters maintenance locally — no server needed — and always switches to the LightDM greeter (never straight into `admin_user`'s session, since anyone at the console can press it), so the admin authenticates with their normal Linux password and can repair networking. It ends when the admin presses **Return to GraceLab** on the kiosk screen or runs `request_maintenance_exit.sh`, or automatically once no admin session has been in the foreground for 3 minutes (so a guest pressing it only parks the station at the login screen briefly). A server that comes back online mid-repair does not end it.
+
 Reset/reboot are delivered through a small one-shot command channel (not a general remote-shell mechanism): the admin action stamps a UUID command id on the station, the client picks it up on its next heartbeat, and the server only clears that id once the client reports back — so a stale or duplicated heartbeat can never replay a reboot or reset.
 
 ---
@@ -373,3 +375,4 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 | 0.4.2 | Announcement banner on the Begin Session screen, managed from Settings; Delete station available for any station without an active session |
 | 0.4.3 | Confetti celebration on the "Starting session…" screen (toggle with `[ui] celebration`) |
 | 0.4.4 | Guests can no longer disconnect or reconfigure networking (NetworkManager polkit lockdown for `gracelab`/`guestlab`); network icon hidden from the guest tray |
+| 0.4.5 | Staff sign-in on the Server Offline screen: local, password-authenticated maintenance for stations that can't reach the server |

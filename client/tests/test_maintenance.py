@@ -557,6 +557,139 @@ class LocalMaintenanceExitRequestTests(unittest.TestCase):
         self.assertEqual(mock_thread.call_args.kwargs["target"], client._report_local_maintenance_exit)
 
 
+OFFLINE = gracelab_client.GraceLabClient.OFFLINE
+
+
+def _loginctl(active_session, name=None, session_class=None):
+    """subprocess.run side effect mimicking the two loginctl queries."""
+    def run(args, **_kwargs):
+        if args[1] == "show-seat":
+            return MagicMock(stdout=f"{active_session}\n")
+        return MagicMock(stdout=f"Name={name}\nClass={session_class}\n")
+    return run
+
+
+class StartLocalMaintenanceTests(unittest.TestCase):
+    """Staff sign-in on the Server Offline screen."""
+
+    def test_enters_maintenance_locally_from_offline(self):
+        client = _make_client(_state=OFFLINE)
+        client._enter_maintenance = MagicMock()
+
+        client._start_local_maintenance()
+
+        client._enter_maintenance.assert_called_once()
+        self.assertTrue(client._local_maintenance)
+        self.assertGreater(client._local_admin_seen_at, 0)
+        # Local maintenance is not a server request.
+        self.assertFalse(client._maintenance_requested)
+
+    def test_ignored_outside_offline(self):
+        client = _make_client(_state=IDLE)
+        client._enter_maintenance = MagicMock()
+
+        client._start_local_maintenance()
+
+        client._enter_maintenance.assert_not_called()
+        self.assertFalse(client._local_maintenance)
+
+    def test_reconnected_server_does_not_end_local_maintenance(self):
+        client = _make_client(_state=MAINTENANCE_ACTIVE, _local_maintenance=True)
+        client.api.heartbeat.return_value = _heartbeat_body(maintenance_requested=False)
+        client._exit_maintenance = MagicMock()
+        client._schedule_heartbeat = MagicMock()
+
+        with patch.object(gracelab_client.os.path, "exists", return_value=False):
+            client._send_heartbeat()
+
+        client._exit_maintenance.assert_not_called()
+        client.root.after.assert_not_called()
+
+    def test_override_failure_returns_to_offline_not_needs_attention(self):
+        client = _make_client(_state=MAINTENANCE_ACTIVE, _local_maintenance=True)
+        client._enable_admin_override = MagicMock(return_value=False)
+        client._admin_override_active = MagicMock(return_value=False)
+        client._show_offline = MagicMock()
+        client._show_needs_attention = MagicMock()
+
+        client._do_enter_maintenance()
+
+        _delay, callback = client.root.after.call_args[0]
+        self.assertIs(callback, client._show_offline)
+        client._show_needs_attention.assert_not_called()
+        self.assertFalse(client._local_maintenance)
+
+    def test_local_entry_always_uses_greeter_not_admin_session(self):
+        client = _make_client(_state=MAINTENANCE_ACTIVE, _local_maintenance=True)
+        client._enable_admin_override = MagicMock(return_value=True)
+        client._admin_override_active = MagicMock(return_value=True)
+        client._switch_to_admin_session = MagicMock(return_value=True)
+        client._dm_tool_switch = MagicMock(return_value=True)
+
+        client._do_enter_maintenance()
+
+        client._switch_to_admin_session.assert_not_called()
+        self.assertEqual(client._dm_tool_switch.call_args.args[0], ["switch-to-greeter"])
+        self.assertTrue(client._maintenance_confirmed)
+
+    def test_exit_clears_local_flag(self):
+        client = _make_client(_state=MAINTENANCE_ACTIVE, _local_maintenance=True)
+        with patch.object(gracelab_client.threading, "Thread"):
+            client._exit_maintenance()
+        self.assertFalse(client._local_maintenance)
+
+
+class LocalMaintenanceIdleTests(unittest.TestCase):
+    """Local maintenance returns to GraceLab when no admin is signed in."""
+
+    def _client(self, seen_ago):
+        client = _make_client(_state=MAINTENANCE_ACTIVE, _local_maintenance=True)
+        client._local_admin_seen_at = gracelab_client.time.time() - seen_ago
+        client._exit_maintenance = MagicMock()
+        return client
+
+    def _check(self, client, run):
+        with patch.object(gracelab_client.subprocess, "run", side_effect=run):
+            client._check_local_maintenance_idle()
+
+    def test_admin_session_keeps_maintenance_and_refreshes_seen_time(self):
+        client = self._client(seen_ago=1000)
+        self._check(client, _loginctl("c5", "labadmin", "user"))
+        client.root.after.assert_not_called()
+        self.assertLess(gracelab_client.time.time() - client._local_admin_seen_at, 5)
+
+    def test_greeter_within_grace_period_waits(self):
+        client = self._client(seen_ago=60)
+        self._check(client, _loginctl("c6", "lightdm", "greeter"))
+        client.root.after.assert_not_called()
+
+    def test_greeter_past_timeout_exits(self):
+        client = self._client(seen_ago=gracelab_client.GraceLabClient.LOCAL_MAINTENANCE_IDLE_SECONDS)
+        self._check(client, _loginctl("c6", "lightdm", "greeter"))
+        _delay, callback = client.root.after.call_args[0]
+        self.assertIs(callback, client._exit_maintenance)
+
+    def test_kiosk_account_in_foreground_counts_as_idle(self):
+        client = self._client(seen_ago=1000)
+        self._check(client, _loginctl("c2", "gracelab", "user"))
+        _delay, callback = client.root.after.call_args[0]
+        self.assertIs(callback, client._exit_maintenance)
+
+    def test_unreadable_seat_counts_as_idle(self):
+        client = self._client(seen_ago=1000)
+        self._check(client, _loginctl(""))
+        _delay, callback = client.root.after.call_args[0]
+        self.assertIs(callback, client._exit_maintenance)
+
+    def test_server_requested_maintenance_never_idles_out(self):
+        client = self._client(seen_ago=1000)
+        client._local_maintenance = False
+        with patch.object(gracelab_client.subprocess, "run") as mock_run:
+            client._check_local_maintenance_idle()
+        mock_run.assert_not_called()
+        client.root.after.assert_not_called()
+
+
 class StationCommandDispatchTests(unittest.TestCase):
     """Explicit allowlist — only reset_gracelab/reboot dispatch a handler."""
 
