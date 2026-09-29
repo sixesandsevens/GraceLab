@@ -23,6 +23,8 @@
 #   - Sets desktop background via set-wallpaper.sh autostart (detects monitor name at login)
 #   - Writes Firefox enterprise policies: homepage locked to guestdesk.info, extensions blocked
 #   - Installs sudoers rules for maintenance-mode/reboot helper scripts
+#   - Denies NetworkManager changes to gracelab/guestlab via polkit, and hides
+#     the guest network applet (admin accounts keep normal network access)
 #   - Creates the gracelab-admin group (local "Return to GraceLab" convenience;
 #     optionally adds --admin-user to it if that account already exists)
 #
@@ -926,6 +928,12 @@ fi
 
 chown -R "${GUEST_USER}:${GUEST_USER}" "$GUEST_LOCAL_BIN" "$GUEST_BASHRC" 2>/dev/null || true
 info "Terminal emulators blocked for ${GUEST_USER}."
+
+# ── Block network changes for the kiosk accounts ──────────────────────────
+# A guest disconnecting Wi-Fi from the tray strands the station: it can't
+# reach the server, so nothing on the dashboard can fix it. The guest
+# template also hides nm-applet (template-home autostart/nm-applet.desktop).
+"${RELEASE_DIR}/scripts/install-network-lockdown.sh"
 
 info "Guest session hardening complete."
 

@@ -28,3 +28,18 @@ gl_kill_guest() {
 gl_clear_guest_logout_flags() {
     rm -f "$GUEST_LOGOUT_FLAG" "$LEGACY_GUEST_LOGOUT_FLAG" 2>/dev/null || true
 }
+
+
+# Re-assert the NetworkManager polkit lockdown for the kiosk accounts. Called
+# from the root lifecycle hooks because they run from the *current* release —
+# unlike the provision-time updater/do-install.sh, which client updates never
+# replace — so existing stations pick the lockdown up on their next session.
+# Non-fatal: a polkit hiccup must not block a guest session or reset.
+gl_ensure_network_lockdown() {
+    local helper="${SCRIPT_DIR}/install-network-lockdown.sh"
+    if [ -x "$helper" ] && "$helper" >/dev/null 2>&1; then
+        return 0
+    fi
+    gl_log WARN "network lockdown: ${helper} failed or missing"
+    return 0
+}

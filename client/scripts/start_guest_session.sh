@@ -20,6 +20,9 @@ passwd -u "$GUEST_USER" 2>/dev/null || true
 gl_clear_guest_logout_flags
 rm -f /tmp/.gracelab-guest-* 2>/dev/null || true
 
+# Make sure guests can't disconnect or reconfigure networking.
+gl_ensure_network_lockdown
+
 # --------------------------------------------------------------------------
 # Optional: launch a guest desktop session here.
 # Uncomment and adapt ONE of the following approaches:

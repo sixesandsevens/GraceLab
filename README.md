@@ -372,3 +372,4 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 | 0.4.1 | Fix open-mode desktop countdown never appearing: freshly started open sessions now write the guest timer file |
 | 0.4.2 | Announcement banner on the Begin Session screen, managed from Settings; Delete station available for any station without an active session |
 | 0.4.3 | Confetti celebration on the "Starting session…" screen (toggle with `[ui] celebration`) |
+| 0.4.4 | Guests can no longer disconnect or reconfigure networking (NetworkManager polkit lockdown for `gracelab`/`guestlab`); network icon hidden from the guest tray |

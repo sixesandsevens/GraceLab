@@ -46,7 +46,7 @@ import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
 
-CLIENT_VERSION = "0.4.3"
+CLIENT_VERSION = "0.4.4"
 
 # ---------------------------------------------------------------------------
 # Logging

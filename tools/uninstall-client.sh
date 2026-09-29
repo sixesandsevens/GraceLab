@@ -106,6 +106,16 @@ rm -f /etc/X11/xorg.conf.d/10-serverflags.conf
 info "Removed /etc/X11/xorg.conf.d/10-serverflags.conf"
 
 # ---------------------------------------------------------------------------
+# NetworkManager polkit lockdown
+# ---------------------------------------------------------------------------
+
+step "Removing NetworkManager polkit lockdown"
+
+rm -f /etc/polkit-1/localauthority/90-mandatory.d/90-gracelab-network.pkla
+rm -f /etc/polkit-1/rules.d/10-gracelab-network.rules
+info "Removed GraceLab polkit network rules"
+
+# ---------------------------------------------------------------------------
 # Firefox policies
 # ---------------------------------------------------------------------------
 

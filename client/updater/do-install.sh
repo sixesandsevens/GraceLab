@@ -130,6 +130,11 @@ EOF
     echo "slick-greeter background updated → ${SLICK_CONF}"
 fi
 
+# NetworkManager polkit lockdown for gracelab/guestlab (non-fatal: the
+# lifecycle hooks re-assert it at every session start/reset anyway)
+"${RELEASE_DIR}/scripts/install-network-lockdown.sh" \
+    || echo "WARN: network lockdown failed" >&2
+
 # Ensure runtime state directory exists and is gracelab-writable
 GRACELAB_USER="gracelab"
 if id "$GRACELAB_USER" &>/dev/null; then
