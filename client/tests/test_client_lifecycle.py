@@ -49,6 +49,9 @@ def _make_client(**attrs):
     client._local_maintenance = False
     client._local_admin_seen_at = 0
     client._last_handled_command_id = None
+    client._reboot_pending = False
+    client._reboot_guard = MagicMock()
+    client._reboot_guard.begin.return_value = None
     client._timer_job = None
     client._sync_job = None
     for key, value in attrs.items():

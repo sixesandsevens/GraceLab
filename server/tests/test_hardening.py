@@ -120,6 +120,19 @@ class HardeningTests(unittest.TestCase):
                                     json={"session_id": self.code_id})
         self.assertTrue(response.json["ok"])
 
+    def test_pending_reboot_is_not_reported_as_maintenance(self):
+        with self.app.app_context():
+            station = db.session.get(Station, self.station_id)
+            station.pending_command_type = "reboot"
+            station.pending_command_id = "test-command"
+            db.session.commit()
+        for path, body in (("validate", {"code": "123-456"}),
+                           ("start", {"session_id": self.code_id}), ("open-start", {})):
+            with self.subTest(path=path):
+                response = self.client.post("/api/session/" + path, headers=self.headers, json=body)
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json["error"], "station_command_pending")
+
     def test_offline_page_and_heartbeat_do_not_clear_fault(self):
         self.login()
         self.set_status("needs_attention")

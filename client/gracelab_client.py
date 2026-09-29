@@ -50,8 +50,9 @@ import urllib.error
 import urllib.request
 import tkinter as tk
 from tkinter import font as tkfont
+from reboot_guard import RebootGuard
 
-CLIENT_VERSION = "0.4.7"
+CLIENT_VERSION = "0.4.8"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -334,6 +335,8 @@ class GraceLabClient:
     UPDATE_PENDING  = "UPDATE_PENDING"
     UPDATE_FAILED   = "UPDATE_FAILED"
     MAINTENANCE_ACTIVE = "MAINTENANCE_ACTIVE"
+    COMMAND_PENDING = "COMMAND_PENDING"
+    REBOOT_PENDING = "REBOOT_PENDING"
 
     # How often to renew the admin-override sentinel's freshness while
     # confirmed-active maintenance is ongoing — comfortably under
@@ -351,6 +354,9 @@ class GraceLabClient:
         self.root = root
         self.cfg = cfg
         self.api = GraceLabAPI(cfg)
+        self._reboot_pending = False
+        self._reboot_guard = RebootGuard(os.path.join(
+            os.path.dirname(self._session_state_path()), 'reboot-command.json'))
 
         self._state = self.IDLE
         self._session_id = None
@@ -628,6 +634,9 @@ class GraceLabClient:
             cb()
 
     def _begin_open_session(self):
+        if self._reboot_pending:
+            self._show_reboot_pending()
+            return
         if self._state != self.IDLE:
             return
         if self._maintenance_requested:
@@ -649,6 +658,9 @@ class GraceLabClient:
             self._proceed_open_session()
 
     def _proceed_open_session(self):
+        if self._reboot_pending:
+            self._show_reboot_pending()
+            return
         self._show_session_starting()
         threading.Thread(target=self._do_open_session, daemon=True).start()
 
@@ -662,6 +674,9 @@ class GraceLabClient:
             return
 
         if not result.get("ok"):
+            if result.get("error") == "station_command_pending":
+                self.root.after(0, self._show_command_pending)
+                return
             err = result.get("error", "unknown")
             log.warning("Open start rejected: %s", err)
             if err == "station_maintenance":
@@ -871,6 +886,18 @@ class GraceLabClient:
 
         tk.Label(outer, text="Resetting…", bg=BG, fg=FG_MUTED, font=self._f_heading).pack()
 
+    def _show_command_pending(self):
+        self._set_state(self.COMMAND_PENDING)
+        self._clear()
+        tk.Label(self._main, text="A staff action is pending. Please wait…",
+                 bg=BG, fg=FG_MUTED, font=self._f_heading).pack(expand=True)
+
+    def _show_reboot_pending(self):
+        self._set_state(self.REBOOT_PENDING)
+        self._clear()
+        tk.Label(self._main, text="Restarting this computer…",
+                 bg=BG, fg=FG_MUTED, font=self._f_heading).pack(expand=True)
+
     def _show_needs_attention(self, reason=""):
         self._set_state(self.NEEDS_ATTENTION)
         self._cancel_timer()
@@ -1000,13 +1027,15 @@ class GraceLabClient:
         client already knows about — so every "we're done, go back to idle"
         call site must go through this instead.
 
-        Priority, highest first: maintenance requested/active, then the
+        Priority, highest first: reboot already executing, maintenance, then the
         Patch B update lock, then normal idle. needs_attention/out_of_service
         are NOT resolved here — those are entered directly by _send_heartbeat
         based on station_status and already take priority over ever calling
         this method in the first place (see _send_heartbeat's branch order).
         """
-        if self._maintenance_requested:
+        if self._reboot_pending:
+            self._show_reboot_pending()
+        elif self._maintenance_requested:
             self._enter_maintenance()
         elif self._update_locked:
             self._show_update_lock_screen()
@@ -1183,6 +1212,9 @@ class GraceLabClient:
         self.root.after(0, lambda: self._code_entry.icursor(tk.END))
 
     def _submit_code(self):
+        if self._reboot_pending:
+            self._show_reboot_pending()
+            return
         if self._state != self.IDLE:
             return
         if self._maintenance_requested:
@@ -1203,6 +1235,9 @@ class GraceLabClient:
             self._proceed_code_validate(code)
 
     def _proceed_code_validate(self, code):
+        if self._reboot_pending:
+            self._show_reboot_pending()
+            return
         self._show_validating()
         threading.Thread(target=self._validate_and_start, args=(code,), daemon=True).start()
 
@@ -1216,6 +1251,9 @@ class GraceLabClient:
             return
 
         if not result.get("ok"):
+            if result.get("error") == "station_command_pending":
+                self.root.after(0, self._show_command_pending)
+                return
             if result.get("error") in ("station_needs_attention", "station_out_of_service"):
                 self.root.after(0, lambda: self._show_needs_attention(
                     "This station is unavailable. Please ask staff for help."
@@ -1251,6 +1289,9 @@ class GraceLabClient:
             return
 
         if not start_result.get("ok"):
+            if start_result.get("error") == "station_command_pending":
+                self.root.after(0, self._show_command_pending)
+                return
             err = start_result.get("error", "unknown")
             log.warning("Start rejected: %s", err)
             if err in ("station_needs_attention", "station_out_of_service"):
@@ -1940,16 +1981,15 @@ class GraceLabClient:
 
                 command = resp.get("station_command")
                 if command and command.get("id") and command["id"] != self._last_handled_command_id:
-                    # See _dispatch_station_command for the replay-safety
-                    # reasoning: this in-memory guard stops us from spawning
-                    # a second handler thread for a command we're already
-                    # working on across back-to-back heartbeats; the server
-                    # clearing pending_command_id on completion is the
-                    # primary defense against a stale command re-executing.
+                    # Suppress duplicate handler threads during this process.
+                    # Reboots also use a synced on-disk receipt across boots;
+                    # lost terminal reports reset this ID to retry the receipt.
                     self._last_handled_command_id = command["id"]
                     self._dispatch_station_command(command["id"], command.get("type"))
 
-            if self._state == self.OFFLINE:
+            if self._state == self.COMMAND_PENDING and not resp.get("station_command"):
+                self.root.after(0, self._return_to_available_state)
+            elif self._state == self.OFFLINE:
                 log.info("Server back online.")
                 self.root.after(0, self._return_to_available_state)
             elif self._state == self.NEEDS_ATTENTION and station_status == "available":
@@ -2488,8 +2528,10 @@ class GraceLabClient:
     def _report_command_status(self, command_id, status, error=None):
         try:
             self.api.command_status(command_id, status, error)
+            return True
         except APIError as e:
             log.warning("Could not report command status (%s -> %s): %s", command_id, status, e)
+            return False
 
     def _handle_reset_gracelab_command(self, command_id):
         """
@@ -2520,44 +2562,52 @@ class GraceLabClient:
             self._report_command_status(command_id, "failed",
                                         error="Reset lifecycle failed — see station logs.")
 
+    def _report_reboot_result(self, command_id, status, error=None):
+        if not self._report_command_status(command_id, status, error):
+            # Retry only the durable receipt on the next heartbeat, never the reboot.
+            self._last_handled_command_id = None
+
     def _handle_reboot_command(self, command_id):
-        """
-        Reject outright while a guest session is active — Patch C does not
-        implement queue-until-idle for reboot, matching stations.py's own
-        rejection of the request at issue time.
-
-        Report "acknowledged" first, then only report "complete" once the
-        privileged helper has actually returned success. reboot_station.sh
-        uses `systemctl reboot --no-block`, which returns immediately after
-        queuing the shutdown (rather than blocking until the machine
-        actually goes down), so we get a real, timely success/failure signal
-        to act on instead of guessing — a false "complete" reported before
-        invocation would let sudoers-not-yet-reprovisioned, a missing
-        helper, or a failed systemctl call all silently clear the server's
-        command with nothing having actually happened.
-
-        required=True: as with start/end/reset, "no reboot
-        script configured" must not be reported as a completed reboot.
-        """
-        log.info("Reboot command received (id=%s).", command_id)
-        if self._state in (self.SESSION_ACTIVE, self.SESSION_WARNING, self.SESSION_STARTING):
-            log.warning("Reboot command %s rejected — a guest session is active.", command_id)
+        """Persist the command before shutdown so a lost report cannot reboot twice."""
+        log.info("Remote reboot command received (id=%s).", command_id)
+        if self._state in (self.SESSION_ACTIVE, self.SESSION_WARNING, self.SESSION_STARTING,
+                           self.VALIDATING, self.TOS_PENDING, self.SESSION_ENDING, self.RESETTING):
             self._report_command_status(command_id, "failed",
                                         error="Rejected: a guest session is currently active.")
             return
 
-        log.info("Reboot command %s acknowledged — station is idle, proceeding.", command_id)
-        self._report_command_status(command_id, "acknowledged")
+        try:
+            previous = self._reboot_guard.begin(command_id)
+        except (OSError, ValueError) as e:
+            log.error("Cannot persist reboot command: %s", e)
+            self._report_reboot_result(command_id, "failed",
+                                       "Cannot persist reboot receipt; reboot was not executed.")
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Could not safely record the reboot request. Please ask staff for help."))
+            return
+        if previous is not None:
+            log.info("Reboot %s already handled; reporting %s without executing again.",
+                     command_id, previous['status'])
+            self._report_reboot_result(command_id, previous['status'], previous.get('error'))
+            return
 
+        self._reboot_pending = True
+        self.root.after(0, self._show_reboot_pending)
+        self._report_command_status(command_id, "acknowledged")
         reboot_script = self.cfg.get("paths", "reboot_script", fallback="")
         ok = self._run_script(reboot_script, "reboot", failure_event="reboot_failed", required=True)
-        if ok:
-            log.info("Reboot command %s: helper invoked successfully — reboot queued.", command_id)
-            self._report_command_status(command_id, "complete")
-        else:
-            log.error("Reboot command %s: reboot helper failed to execute.", command_id)
-            self._report_command_status(command_id, "failed",
-                                        error="Reboot helper failed to execute — see station logs.")
+        status = "complete" if ok else "failed"
+        error = None if ok else "Reboot helper failed to execute — see station logs."
+        try:
+            self._reboot_guard.finish(command_id, status, error)
+        except (OSError, ValueError) as e:
+            # The already-synced armed receipt still prevents another execution.
+            log.error("Could not persist reboot result: %s", e)
+        self._report_reboot_result(command_id, status, error)
+        if not ok:
+            self._reboot_pending = False
+            self.root.after(0, lambda: self._show_needs_attention(
+                "Reboot failed. Please ask staff for help."))
 
     # ------------------------------------------------------------------
     # Misc

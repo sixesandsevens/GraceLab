@@ -308,7 +308,7 @@ class StationCommandChannelTests(MaintenanceTestCase):
             "/api/session/validate", headers=self._station_headers(),
             json={"code": "888888"},
         )
-        self.assertEqual(resp.get_json()["error"], "station_maintenance")
+        self.assertEqual(resp.get_json()["error"], "station_command_pending")
 
     def test_reset_failure_marks_needs_attention_and_clears_command(self):
         """8. Reset failure — station must not return to guest-admittable idle."""

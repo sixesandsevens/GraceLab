@@ -115,8 +115,10 @@ def _admission_error(station):
         error = "station_out_of_service"
     elif station.status == "needs_attention":
         error = "station_needs_attention"
-    elif station.maintenance_requested or station.maintenance_active or station.pending_command_type:
+    elif station.maintenance_requested or station.maintenance_active:
         error = "station_maintenance"
+    elif station.pending_command_type:
+        error = "station_command_pending"
     elif station.desired_client_version:
         error = "station_updating"
     else:
