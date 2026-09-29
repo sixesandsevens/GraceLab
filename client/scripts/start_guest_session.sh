@@ -22,6 +22,7 @@ rm -f /tmp/.gracelab-guest-* 2>/dev/null || true
 
 # Make sure guests can't disconnect or reconfigure networking.
 gl_ensure_network_lockdown
+gl_ensure_updater_helper
 
 # --------------------------------------------------------------------------
 # Optional: launch a guest desktop session here.

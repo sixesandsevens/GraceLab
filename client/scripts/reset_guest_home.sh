@@ -33,6 +33,7 @@ chown -R "${GUEST_USER}:${GUEST_USER}" "$GUEST_HOME"
 chmod 700 "$GUEST_HOME"
 
 gl_ensure_network_lockdown
+gl_ensure_updater_helper
 
 gl_log INFO "reset_guest_home: reset complete"
 exit 0

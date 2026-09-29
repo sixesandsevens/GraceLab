@@ -266,4 +266,13 @@ EOF
     echo "gracelab operator lockdown updated."
 fi
 
+# ---------------------------------------------------------------------------
+# Self-update: replace this helper with the release's copy (atomic rename, so
+# it's safe while this very script is still running). Last on purpose — the
+# new helper only takes effect from the next update.
+# ---------------------------------------------------------------------------
+
+"${RELEASE_DIR}/scripts/sync-updater-helper.sh" \
+    || echo "WARN: updater helper self-update failed" >&2
+
 echo "Installed gracelab-client ${VERSION} → ${RELEASE_DIR}"

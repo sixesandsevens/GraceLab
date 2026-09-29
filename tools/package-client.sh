@@ -75,6 +75,10 @@ chmod +x "${STAGE}/scripts/"*.sh
 
 # Updater scripts
 cp "${REPO_CLIENT_DIR}/updater/"*.py "${STAGE}/updater/" 2>/dev/null || true
+# The root helper too, so sync-updater-helper.sh can keep the installed copy
+# current (updater.py runs /opt/gracelab-client/updater/do-install.sh, not this one)
+cp "${REPO_CLIENT_DIR}/updater/"*.sh "${STAGE}/updater/"
+chmod +x "${STAGE}/updater/"*.sh
 
 # Assets (wallpaper, icons, etc.)
 if [[ -d "${REPO_CLIENT_DIR}/assets" ]]; then

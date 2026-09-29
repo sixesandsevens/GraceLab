@@ -32,8 +32,8 @@ gl_clear_guest_logout_flags() {
 
 # Re-assert the NetworkManager polkit lockdown for the kiosk accounts. Called
 # from the root lifecycle hooks because they run from the *current* release —
-# unlike the provision-time updater/do-install.sh, which client updates never
-# replace — so existing stations pick the lockdown up on their next session.
+# stations provisioned before 0.4.6 have a do-install.sh that predates the
+# lockdown — so every station picks it up on its next session.
 # Non-fatal: a polkit hiccup must not block a guest session or reset.
 gl_ensure_network_lockdown() {
     local helper="${SCRIPT_DIR}/install-network-lockdown.sh"
@@ -41,5 +41,18 @@ gl_ensure_network_lockdown() {
         return 0
     fi
     gl_log WARN "network lockdown: ${helper} failed or missing"
+    return 0
+}
+
+# Bring the root-owned updater helper up to the current release's version.
+# do-install.sh does this itself from 0.4.6 on; calling it from the hooks too
+# is what upgrades stations whose helper predates that. Non-fatal.
+gl_ensure_updater_helper() {
+    local helper="${SCRIPT_DIR}/sync-updater-helper.sh" out
+    if [ -x "$helper" ] && out="$("$helper" 2>&1)"; then
+        [ -n "$out" ] && gl_log INFO "updater helper: ${out}"
+        return 0
+    fi
+    gl_log WARN "updater helper: ${helper} failed or missing: ${out:-}"
     return 0
 }
