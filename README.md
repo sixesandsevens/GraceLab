@@ -44,13 +44,15 @@ GraceLab/
 │   ├── stations.py          Station management
 │   ├── admin.py             Audit log + settings
 │   ├── updates.py           Update packages + OTA API
-│   ├── extensions.py        Flask extension singletons
+│   ├── extensions.py        Flask extension singletons + SQLite WAL pragmas
 │   ├── limiter.py           Flask-Limiter singleton
 │   ├── audit.py             log_audit() helper
 │   ├── requirements.txt
 │   ├── scripts/
-│   │   └── init_db.py       Re-runnable DB migration + seed
-│   └── templates/
+│   │   ├── init_db.py       Re-runnable DB migration + seed
+│   │   └── create_admin.py  Create / reset a dashboard admin
+│   ├── templates/           (includes the in-dashboard Setup Guide)
+│   └── tests/               Server unit tests
 │
 ├── client/                  Kiosk client (installed on each station)
 │   ├── gracelab_client.py   Main kiosk application (Tkinter)
@@ -59,20 +61,33 @@ GraceLab/
 │   ├── client_config.ini.example
 │   ├── assets/              Static assets (background image, etc.)
 │   ├── scripts/
-│   │   ├── common.sh        Shared shell helpers
-│   │   ├── start_guest_session.sh
-│   │   ├── end_guest_session.sh
-│   │   ├── reset_guest_home.sh
+│   │   ├── common.sh        Shared shell helpers (gl_ensure_* self-healing hooks)
+│   │   ├── start_guest_session.sh     ┐
+│   │   ├── end_guest_session.sh       │ lifecycle hooks (root, via sudoers)
+│   │   ├── reset_guest_home.sh        ┘
+│   │   ├── enable_admin_override.sh   ┐
+│   │   ├── disable_admin_override.sh  │ maintenance mode / station commands
+│   │   ├── request_maintenance_exit.sh│ (root, via sudoers)
+│   │   ├── reboot_station.sh          ┘
+│   │   ├── install-network-lockdown.sh  polkit NetworkManager deny (root-only)
+│   │   ├── sync-updater-helper.sh       keeps do-install.sh current (root-only)
+│   │   ├── lockdown-operator.sh  gracelab XFCE lockdown + re-enforcement loop
+│   │   ├── window-watchdog.sh    Closes any window that isn't GraceLab
 │   │   ├── run-client.sh    Client wrapper / restart loop
 │   │   └── set-wallpaper.sh Dynamic wallpaper setter
 │   ├── template-home/       Pristine guestlab home (rsync'd on reset)
+│   ├── tests/               Client unit tests
 │   └── updater/
 │       ├── updater.py       Auto-update daemon
-│       └── do-install.sh    Root-owned install helper (sudoers)
+│       └── do-install.sh    Root-owned install helper (sudoers; self-updating)
 │
 └── tools/
     ├── install-client.sh    Full-machine provisioner (run on each station)
-    └── package-client.sh    Build a versioned client update package
+    ├── uninstall-client.sh  Removes everything install-client.sh added
+    ├── package-client.sh    Build a versioned client update package
+    ├── gracelab.service     Sample systemd unit for the server
+    ├── audit-shortcuts.sh   Dump/flag live XFCE shortcuts on a station
+    └── fake_client.py       Scripted station for exercising the API
 ```
 
 ---
@@ -102,6 +117,8 @@ FLASK_ENV=development python3 scripts/init_db.py
 ```
 
 This creates `server/instance/gracelab.sqlite3`, all tables, and seeds default settings (60-minute sessions, 24-hour code expiry, 5-minute warning, 90-second offline threshold, batch max 36, updates disabled). If a key already exists it is left unchanged, so re-running is always safe.
+
+The database runs in **WAL mode** with `synchronous=NORMAL` and a 15-second lock wait (set on every connection in `extensions.py`/`config.py`). On a Raspberry Pi, SD-card writes can stall for several seconds — notably during the daily apt run — and before WAL that surfaced as bursts of "database is locked" errors on station heartbeats. WAL adds `gracelab.sqlite3-wal` / `-shm` files next to the database (git-ignored); back up all three together, or copy while the server is stopped.
 
 ### Create the first admin user
 
@@ -139,6 +156,12 @@ Restart after server-side changes:
 
 ```bash
 sudo systemctl restart gracelab
+```
+
+Without sudo, a graceful reload works too — gunicorn replaces its workers with fresh code (no `preload_app`, so nothing is cached in the master):
+
+```bash
+kill -HUP "$(systemctl show -p MainPID --value gracelab)"
 ```
 
 ### Networking
@@ -199,7 +222,7 @@ The installer:
 - Installs required packages (python3-tk, LibreOffice, accessibility tools, games, etc.)
 - Creates `gracelab` and `guestlab` OS users (both password-locked)
 - Adds both users to the `nopasswdlogin` group for passwordless autologin
-- Installs client files to `/opt/gracelab-client/releases/0.2.0/`
+- Installs client files to `/opt/gracelab-client/releases/<version>/`
 - Creates `/opt/gracelab-client/current` symlink
 - Writes `/etc/gracelab/client_config.ini`
 - Installs `do-install.sh` to `/opt/gracelab-client/updater/` (root-owned)
@@ -213,8 +236,13 @@ The installer:
 - Locks Firefox homepage to `guestdesk.info` and blocks extension installs
 - Installs desktop files for the Apps launcher and End Session button
 - Suppresses the Linux Mint welcome screen
+- Blocks `gracelab`/`guestlab` from changing networking via polkit (disconnect, switch networks, toggle Wi-Fi, edit saved connections) and hides the network applet in the guest tray — see "Security notes"
 
 **Reboot after running the installer.**
+
+The dashboard's **Setup Guide** page (admin nav) walks through the same steps with your server URL filled in, including maintenance mode and the `--admin-user` flag.
+
+To remove GraceLab from a station (e.g. before a clean reinstall): `sudo ./tools/uninstall-client.sh`.
 
 ---
 
@@ -235,6 +263,10 @@ A guest on the warning screen can enter a second unused code to extend their cur
 
 Open the session detail page and click **End Session**. The kiosk polls the server every 12 seconds and will pick up the change.
 
+### Announcements
+
+**Settings → Announcement** — up to 300 characters, shown as a banner on every station's Begin Session screen (e.g. "Printing has been fixed!"). Stations pick up changes within a minute. **Remove Announcement** clears it. Changes are audit-logged. (Client 0.4.2+.)
+
 ### Station statuses
 
 | Status | Meaning |
@@ -248,6 +280,10 @@ Open the session detail page and click **End Session**. The kiosk polls the serv
 ### Admin recovery on a stuck station
 
 Press **Escape** on the kiosk screen when it shows `needs_attention` — this exits fullscreen so you can interact with the desktop. Fix the issue, then clear the station status from the dashboard.
+
+If the station shows **Server Offline** (it can't reach the server, so dashboard actions can't reach it either), use **Staff sign-in** — see below.
+
+**Delete** (Stations page) removes a station record; it's available for any station without an active session.
 
 ### Maintenance mode & remote recovery
 
@@ -268,6 +304,8 @@ Runnable by any account in the `gracelab-admin` group (add one with `usermod -aG
 
 **Staff sign-in (station can't reach the server)**: the "Server Offline" screen has a small **Staff sign-in** link in the bottom-left corner. It enters maintenance locally — no server needed — and always switches to the LightDM greeter (never straight into `admin_user`'s session, since anyone at the console can press it), so the admin authenticates with their normal Linux password and can repair networking. It ends when the admin presses **Return to GraceLab** on the kiosk screen or runs `request_maintenance_exit.sh`, or automatically once no admin session has been in the foreground for 3 minutes (so a guest pressing it only parks the station at the login screen briefly). A server that comes back online mid-repair does not end it.
 
+> **Log out of the admin account before returning to GraceLab.** Return to GraceLab / `request_maintenance_exit.sh` only switches the display back — the admin session keeps running in the background, and a later sign-in at the greeter reattaches to it, which can come up as a black screen with only a pointer (a reboot clears it). Logging out first avoids this; after a Staff sign-in, logging out alone is enough, since the station returns to GraceLab within ~3 minutes on its own.
+
 Reset/reboot are delivered through a small one-shot command channel (not a general remote-shell mechanism): the admin action stamps a UUID command id on the station, the client picks it up on its next heartbeat, and the server only clears that id once the client reports back — so a stale or duplicated heartbeat can never replay a reboot or reset.
 
 ---
@@ -280,16 +318,24 @@ Run on the server after updating client code:
 
 ```bash
 sudo ./tools/package-client.sh
-# Output: /var/lib/gracelab/updates/gracelab-client-0.2.0.tar.gz
+# Output: /var/lib/gracelab/updates/gracelab-client-<version>.tar.gz
+# (version read from CLIENT_VERSION in client/gracelab_client.py)
 ```
 
 Or upload the `.tar.gz` via **Updates** in the admin nav.
 
 ### Publish the update
 
-1. **Settings → Client Updates** — enable updates, set **Published Stable Version** to the new version string (e.g. `0.2.0`).
+1. **Settings → Client Updates** — enable updates, set **Published Stable Version** to the new version string (e.g. `0.4.6`).
 2. Stations check every 5 minutes (configurable). When idle, the updater downloads the package, verifies the SHA256, installs it via `sudo do-install.sh`, and writes `/tmp/gracelab-update-ready`.
 3. The kiosk client detects the flag on its next heartbeat (≤30 s) and exits cleanly. The `run-client.sh` wrapper relaunches it against the new version.
+
+### What an update does — and doesn't — change immediately
+
+- **Client code, scripts, assets** — live as soon as the client restarts on the new release.
+- **Guest desktop template** (`template-home/`) — copied into `/home/guestlab` at the next session **reset**, so it shows from the session *after* the next one ends (never touches a live guest session).
+- **Root-level system config delivered by lifecycle hooks** (e.g. the network polkit rules) — applied at the next guest session start or reset, not at install time.
+- **`do-install.sh` itself** — replaced at the end of each install, so a change to it takes effect from the update *after* the one that ships it. If a root-level change must apply right away, put it in a lifecycle hook (a `gl_ensure_*` helper in `common.sh`) or ship two releases.
 
 ### Update policies
 
@@ -326,6 +372,19 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 | `client_beta_version` | — | Version to advertise on the beta channel |
 | `client_min_supported_version` | — | Versions below this are flagged in the dashboard |
 
+### Station config (`/etc/gracelab/client_config.ini`)
+
+Per-station options, written by the installer (see `client/client_config.ini.example` for the full file):
+
+| Section / key | Default | Description |
+|---|---|---|
+| `[session] heartbeat_interval_seconds` | 30 | Heartbeat cadence; also paces offline detection, update-ready restarts and the Staff sign-in idle check |
+| `[session] sync_interval_seconds` | 12 | Session-status poll during a session (how fast dashboard extend/end lands) |
+| `[ui] fullscreen` | true | Set false for windowed testing |
+| `[ui] celebration` | true | Confetti on the "Starting session…" screen (holds it ~3 s); false skips it |
+| `[updates] install_policy` | idle_only | Per-station override of the update policy |
+| `[maintenance] admin_user` | — | Local admin account for server-requested maintenance (blank = LightDM greeter) |
+
 ---
 
 ## Security notes
@@ -337,7 +396,8 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 - `do-install.sh` keeps itself current: each release ships its own copy, and `sync-updater-helper.sh` (root-only, not in sudoers) swaps it into `/opt/gracelab-client/updater/` by atomic rename — only if it differs and passes `bash -n`, and never removed when rolling back to a release that doesn't ship one. It runs at the end of every install and from the session start/reset hooks, which is how stations provisioned before 0.4.6 pick it up. A change to the helper takes effect from the update *after* the one that ships it.
 - `/run/gracelab-admin-override` (maintenance mode's kiosk-enforcement suppression flag) lives directly under `/run`, not the shared `/run/gracelab/` IPC directory guestlab can also write to — a guest process has no path to create or modify it. Only `enable_admin_override.sh`/`disable_admin_override.sh`, invoked via sudo, can touch it.
 - The local "Return to GraceLab" script (`request_maintenance_exit.sh`) is grantable via sudo to the `gracelab-admin` group rather than a specific username, so provisioning it doesn't require hardcoding a personal account into the installer.
-- Maintenance mode never stores or checks the local administrator's password — it only switches the display toward that account's session or the LightDM greeter; authentication stays ordinary Linux/LightDM auth.
+- Maintenance mode never stores or checks the local administrator's password — it only switches the display toward that account's session or the LightDM greeter; authentication stays ordinary Linux/LightDM auth. Staff sign-in (offline screen) always goes to the greeter, since anyone at the console can press it.
+- **Network lockdown**: `install-network-lockdown.sh` denies every `org.freedesktop.NetworkManager.*` polkit action to `gracelab` and `guestlab`, so a guest can't knock a station offline (which would also cut it off from dashboard recovery). Every other account keeps the distro defaults. It writes both `/etc/polkit-1/localauthority/90-mandatory.d/90-gracelab-network.pkla` (polkit 0.105 / Mint 21) and `/etc/polkit-1/rules.d/10-gracelab-network.rules` (polkit 121+ / Mint 22); each polkit version ignores the other's file. It's applied at install and re-asserted by the session start/reset hooks. The network applet is also hidden from the guest tray (`template-home/.config/autostart/nm-applet.desktop`).
 - Station tokens are hashed with Werkzeug's `generate_password_hash` (bcrypt). Tokens are shown once at registration; if lost, rotate from the Stations page.
 - The admin panel requires the `admin` role. Staff accounts use the `staff` role and cannot access audit logs, settings, or token rotation.
 - Login attempts are rate-limited to 10/minute and 30/hour via Flask-Limiter.
@@ -355,12 +415,26 @@ All settings are live (no restart needed) and editable at **Settings** in the ad
 | `/opt/gracelab-client/updater/do-install.sh` | Root-owned install helper |
 | `/opt/gracelab-client/template-home/` | Pristine guestlab home directory |
 | `/etc/gracelab/client_config.ini` | Station config (token, server URL) |
-| `/var/log/gracelab/` | Client and wrapper logs |
-| `/tmp/gracelab-session.json` | Active session state (survives reboot) |
-| `/tmp/gracelab-guest-logout` | IPC flag: guest clicked End Session |
+| `/var/log/gracelab/` | Client, wrapper, updater and watchdog logs; `lifecycle.log` for the root hooks (incl. network lockdown / updater helper sync) |
+| `/var/lib/gracelab-client/session-state.json` | Active session state (survives reboot) |
+| `/tmp/gracelab-session.json` | Guest desktop countdown timer file |
+| `/run/gracelab/guest-logout` | IPC flag: guest clicked End Session (legacy: `/tmp/gracelab-guest-logout`) |
 | `/tmp/gracelab-update-ready` | IPC flag: updater installed new version |
 | `/run/gracelab-admin-override` | Maintenance mode: suppresses watchdog/lockdown enforcement (root-owned, not guest-writable) |
 | `/run/gracelab-maintenance-exit-requested` | Local "Return to GraceLab" request flag (root-owned) |
+| `/etc/polkit-1/localauthority/90-mandatory.d/90-gracelab-network.pkla` | Network lockdown (polkit 0.105) |
+| `/etc/polkit-1/rules.d/10-gracelab-network.rules` | Network lockdown (polkit 121+) |
+
+---
+
+## Running tests
+
+```bash
+FLASK_ENV=testing python3 -m unittest discover -s server/tests   # repo root, server venv active
+python3 -m unittest discover -s client/tests
+```
+
+The client tests import `gracelab_client`, which imports tkinter. On a machine without tkinter (e.g. the Raspberry Pi server), put a stub `tkinter` package on `PYTHONPATH` — the tests never build a real UI.
 
 ---
 
