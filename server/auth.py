@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, login_required, current_user
 from flask_wtf import FlaskForm
@@ -21,7 +22,22 @@ class LoginForm(FlaskForm):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    try:
+        user = db.session.get(User, int(user_id))
+    except (TypeError, ValueError):
+        return None
+    # Check on every request, including sessions restored from remember cookies.
+    return user if user and user.active else None
+
+
+def _local_redirect(target):
+    """Only accept an absolute local path, never a browser-normalized host."""
+    if not target or not target.startswith("/") or target.startswith("//"):
+        return False
+    if "\\" in target or any(ord(char) < 32 or ord(char) == 127 for char in target):
+        return False
+    parsed = urlsplit(target)
+    return not parsed.scheme and not parsed.netloc
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -40,7 +56,7 @@ def login():
                       details={"username": user.username})
             db.session.commit()
             next_page = request.args.get("next")
-            if not next_page or not next_page.startswith("/"):
+            if not _local_redirect(next_page):
                 next_page = url_for("dashboard.index")
             return redirect(next_page)
         log_audit("login_failed",

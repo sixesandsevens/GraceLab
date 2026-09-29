@@ -58,7 +58,7 @@ class ProductionConfig(Config):
     @classmethod
     def validate(cls):
         key = os.environ.get("SECRET_KEY", _DEV_SECRET)
-        if not key or key == _DEV_SECRET:
+        if not key or not key.strip() or key in (_DEV_SECRET, "CHANGE_ME_BEFORE_PRODUCTION"):
             raise RuntimeError(
                 "SECRET_KEY must be set to a strong random value in production. "
                 "Set the SECRET_KEY environment variable before starting the server."

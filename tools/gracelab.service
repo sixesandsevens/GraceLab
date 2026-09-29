@@ -9,9 +9,7 @@ WorkingDirectory=/opt/gracelab/GraceLab/server
 Environment=FLASK_ENV=production
 # Generate a strong key: openssl rand -hex 32
 # Store it in /etc/gracelab/server.env and reference it here, or set inline:
-EnvironmentFile=-/etc/gracelab/server.env
-# Fallback if EnvironmentFile is missing — replace before going live:
-Environment=SECRET_KEY=CHANGE_ME_BEFORE_PRODUCTION
+EnvironmentFile=/etc/gracelab/server.env
 
 # 2 workers so one request stalled on an SD-card write doesn't hold up every
 # station's heartbeat. Rate limits are per worker — see README "Run (production)".

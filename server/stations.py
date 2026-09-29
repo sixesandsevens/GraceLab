@@ -73,7 +73,8 @@ def list_stations():
 
     changed = False
     for st in stations:
-        if st.status in ("available", "in_use", "needs_attention") and st.last_seen:
+        # Connectivity must never erase a fault that requires staff recovery.
+        if st.status in ("available", "in_use") and st.last_seen:
             last = st.last_seen
             if last.tzinfo is None:
                 last = last.replace(tzinfo=timezone.utc)

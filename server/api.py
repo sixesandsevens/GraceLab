@@ -104,6 +104,26 @@ def _server_time():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def _admission_error(station):
+    """Shared admission locks; connectivity alone is not a persistent fault.
+
+    Keep accepting an authenticated reconnect from an offline station, as
+    older clients may start before their first heartbeat. Existing active
+    sessions continue to use status/end/extend even while admission is locked.
+    """
+    if station.status == "out_of_service":
+        error = "station_out_of_service"
+    elif station.status == "needs_attention":
+        error = "station_needs_attention"
+    elif station.maintenance_requested or station.maintenance_active or station.pending_command_type:
+        error = "station_maintenance"
+    elif station.desired_client_version:
+        error = "station_updating"
+    else:
+        return None
+    return jsonify({"ok": False, "error": error}), 403
+
+
 def _update_station_seen(station, reported_status=None):
     station.last_seen = datetime.now(timezone.utc)
     if station.status in ("out_of_service", "needs_attention"):
@@ -302,19 +322,9 @@ def session_validate(station):
             "retry_after_seconds": retry_after,
         }), 429
 
-    if station.status == "out_of_service":
-        return jsonify({"ok": False, "error": "station_out_of_service"}), 403
-
-    # Maintenance (requested/active) or an outstanding reset/reboot command
-    # is a session-admission lock, checked ahead of the update lock — an
-    # admin actively working the station always takes priority over a queued
-    # update. Reject here even if a stale client UI still shows the
-    # code-entry screen (defense in depth alongside the client-side check).
-    if station.maintenance_requested or station.maintenance_active or station.pending_command_type:
-        return jsonify({"ok": False, "error": "station_maintenance"}), 403
-
-    if station.desired_client_version:
-        return jsonify({"ok": False, "error": "station_updating"}), 403
+    admission_error = _admission_error(station)
+    if admission_error is not None:
+        return admission_error
 
     now = datetime.now(timezone.utc)
 
@@ -357,16 +367,9 @@ def session_start(station):
     if not session_id:
         return jsonify({"ok": False, "error": "missing_session_id"}), 400
 
-    if station.status == "out_of_service":
-        return jsonify({"ok": False, "error": "station_out_of_service"}), 403
-
-    # See session_validate above — maintenance/pending command and update
-    # locks both block new admission.
-    if station.maintenance_requested or station.maintenance_active or station.pending_command_type:
-        return jsonify({"ok": False, "error": "station_maintenance"}), 403
-
-    if station.desired_client_version:
-        return jsonify({"ok": False, "error": "station_updating"}), 403
+    admission_error = _admission_error(station)
+    if admission_error is not None:
+        return admission_error
 
     if station.current_session_id:
         return jsonify({"ok": False, "error": "station_already_in_session"}), 409
@@ -409,16 +412,9 @@ def session_open_start(station):
     if not Setting.get_bool("open_lab_mode", False):
         return jsonify({"ok": False, "error": "open_lab_mode_disabled"}), 403
 
-    if station.status == "out_of_service":
-        return jsonify({"ok": False, "error": "station_out_of_service"}), 403
-
-    # See session_validate above — maintenance/pending command and update
-    # locks both block new admission, including open-mode admission.
-    if station.maintenance_requested or station.maintenance_active or station.pending_command_type:
-        return jsonify({"ok": False, "error": "station_maintenance"}), 403
-
-    if station.desired_client_version:
-        return jsonify({"ok": False, "error": "station_updating"}), 403
+    admission_error = _admission_error(station)
+    if admission_error is not None:
+        return admission_error
 
     if station.current_session_id:
         return jsonify({"ok": False, "error": "station_already_in_session"}), 409
