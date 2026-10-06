@@ -416,6 +416,7 @@ Per-station options, written by the installer (see `client/client_config.ini.exa
 |---|---|
 | `/opt/gracelab-client/current/` | Symlink → active client version |
 | `/opt/gracelab-client/releases/<ver>/` | Installed client versions |
+| `/opt/gracelab-client/releases/<ver>.reinstall-<time>/` | Reinstall of the running version (the live release is never modified; the next install of that version moves back to `<ver>/`) |
 | `/opt/gracelab-client/downloads/` | Temporary download scratch space |
 | `/opt/gracelab-client/updater/do-install.sh` | Root-owned install helper |
 | `/opt/gracelab-client/template-home/` | Pristine guestlab home directory |

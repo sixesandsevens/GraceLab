@@ -61,30 +61,65 @@ if [[ -n "$UNSAFE" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Extract to release directory
+# Stage the release, then switch to it
+#
+# Power-loss safety: `current` must always point at a complete, on-disk
+# release. Guests do power stations off mid-update (gracelab-03, 2026-10-06:
+# a reinstall deleted and re-extracted the live release dir, the power cut
+# left ~30 zero-byte files, and the station could not start the kiosk or the
+# updater again). So the release is extracted into a staging dir that nothing
+# points at, flushed to disk, and only then renamed into place and swapped
+# in. The release `current` points at is never modified: reinstalling the
+# running version goes to a fresh "<version>.reinstall-<time>" dir instead.
 # ---------------------------------------------------------------------------
 
-RELEASE_DIR="${INSTALL_BASE}/releases/${VERSION}"
-
-rm -rf "$RELEASE_DIR"
-mkdir -p "$RELEASE_DIR"
-
-tar -xzf "$REAL_TARBALL" -C "$RELEASE_DIR"
-
-# Root owns everything; scripts must be executable
-chown -R root:root "$RELEASE_DIR"
-find "${RELEASE_DIR}/scripts" -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
-find "${RELEASE_DIR}/updater" -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
-
-# ---------------------------------------------------------------------------
-# Atomic symlink swap
-# ---------------------------------------------------------------------------
-
+RELEASES_DIR="${INSTALL_BASE}/releases"
 CURRENT_LINK="${INSTALL_BASE}/current"
 TMP_LINK="${CURRENT_LINK}.new"
+STAGING_DIR="${RELEASES_DIR}/.staging-${VERSION}"
+LIVE_DIR="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
 
-ln -s "$RELEASE_DIR" "$TMP_LINK"
+RELEASE_DIR="${RELEASES_DIR}/${VERSION}"
+if [[ "$LIVE_DIR" == "$RELEASE_DIR" ]]; then
+    RELEASE_DIR="${RELEASES_DIR}/${VERSION}.reinstall-$(date +%Y%m%d%H%M%S)"
+fi
+
+mkdir -p "$RELEASES_DIR"
+# Leftovers from an interrupted install were never pointed at; drop them.
+rm -rf "${RELEASES_DIR}"/.staging-*
+mkdir -p "$STAGING_DIR"
+
+tar -xzf "$REAL_TARBALL" -C "$STAGING_DIR"
+
+# Root owns everything; everything is readable by the kiosk user (0.4.9
+# shipped 0600 files) and scripts are executable.
+chown -R root:root "$STAGING_DIR"
+chmod -R u+rwX,go+rX,go-w "$STAGING_DIR"
+find "${STAGING_DIR}/scripts" -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
+find "${STAGING_DIR}/updater" -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
+
+[[ -s "${STAGING_DIR}/gracelab_client.py" ]] \
+    || { echo "Extracted release has no gracelab_client.py — aborting." >&2; exit 1; }
+
+sync
+
+# RELEASE_DIR is not live here (see above), so replacing it is safe.
+rm -rf "$RELEASE_DIR"
+mv -T "$STAGING_DIR" "$RELEASE_DIR"
+sync
+
+# Atomic symlink swap
+ln -sfn "$RELEASE_DIR" "$TMP_LINK"
 mv -Tf "$TMP_LINK" "$CURRENT_LINK"
+sync
+
+# Drop other copies of this version (e.g. the release we just reinstalled
+# over), now that nothing points at them. Other versions are kept for rollback.
+for old in "${RELEASES_DIR}/${VERSION}" "${RELEASES_DIR}/${VERSION}".reinstall-*; do
+    if [[ -e "$old" && "$old" != "$RELEASE_DIR" ]]; then
+        rm -rf "$old"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # Sync shared data from this release
