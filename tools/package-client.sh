@@ -93,6 +93,16 @@ if [[ -d "${REPO_CLIENT_DIR}/template-home" ]]; then
     rsync -a --delete "${REPO_CLIENT_DIR}/template-home/" "${STAGE}/template-home/"
 fi
 
+# Normalize modes. cp/rsync carry over source-tree modes, and the installer
+# runs as root, so a 0600 file in the checkout installs "successfully" but the
+# kiosk user cannot read it (0.4.9 shipped gracelab_client.py as 0600: black
+# screen on every updated station). Everything becomes world-readable, not
+# group/world-writable; executable bits are kept and made uniform (755).
+chmod -R u+rwX,go+rX,go-w "$STAGE"
+find "$STAGE" -perm -u=x -type f -exec chmod 755 {} +
+UNREADABLE="$(find "$STAGE" ! -perm -o=r)"
+[[ -z "$UNREADABLE" ]] || die "Files not world-readable after normalizing:"$'\n'"${UNREADABLE}"
+
 # ---------------------------------------------------------------------------
 # Create tarball and checksum
 # ---------------------------------------------------------------------------
