@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from "_station_actions.html" import station_actions, station_admin_actions, station_badges, update_badge %}
+{% block title %}{{ station.display_name }}{% endblock %}
+
+{% set here = url_for('stations.detail', station_id=station.id) %}
+{% set busy = (station.pending_command_type and station.pending_command_status not in ('complete', 'failed'))
+              or station.client_update_status in ('downloading', 'installing')
+              or (station.maintenance_requested and not station.maintenance_active and not station.current_session_id) %}
+
+{% block head %}
+  {# While something is in flight, keep the page current without touching it. #}
+  {% if busy %}<meta http-equiv="refresh" content="10">{% endif %}
+{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('stations.list_stations') }}" class="back-link">← All stations</a>
+
+<div class="page-header">
+  <div>
+    <h2>{{ station.display_name }}</h2>
+    <div class="page-subtitle"><code>{{ station.hostname }}</code></div>
+  </div>
+</div>
+
+<div class="detail-card station-summary">
+  <div class="station-summary-badges">{{ station_badges(station) }}</div>
+  <table class="detail-table">
+    <tr>
+      <th>Last seen</th>
+      <td>
+        {{ station.last_seen | ago }}
+        {% if station.status == 'offline' %}
+          <div class="form-hint">Not checking in. If the screen is black or frozen, a reboot from here
+            won't reach it. Restart the computer itself.</div>
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <th>Client</th>
+      <td>{% if station.client_version %}<code>{{ station.client_version }}</code>{% else %}—{% endif %}
+        {{ update_badge(station) }}</td>
+    </tr>
+    {% if station.notes %}
+    <tr><th>Notes</th><td>{{ station.notes }}</td></tr>
+    {% endif %}
+    {% if busy %}
+    <tr><th></th><td class="form-hint">Refreshing every 10 seconds until this finishes.</td></tr>
+    {% endif %}
+  </table>
+</div>
+
+{% set s = station.current_session %}
+{% if s and s.status == 'active' %}
+{% set secs = s.time_remaining_seconds() %}
+<div class="detail-card">
+  <div class="detail-card-header"><h3>Current Session</h3></div>
+  <table class="detail-table">
+    <tr><th>Code</th><td><a href="{{ url_for('sessions.detail', session_id=s.id) }}"><strong>{{ s.code_display }}</strong></a></td></tr>
+    <tr><th>Time left</th><td {% if secs < 300 %}class="text-warning"{% endif %}>{{ secs // 60 }}m {{ secs % 60 }}s</td></tr>
+  </table>
+  <div class="action-grid">
+    {% if current_user.is_admin() %}
+      {% for m in (15, 30) %}
+      <form method="post" action="{{ url_for('sessions.extend', session_id=s.id) }}" class="action-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="minutes" value="{{ m }}">
+        <input type="hidden" name="next" value="{{ here }}">
+        <button type="submit" class="btn btn-lg btn-secondary">+{{ m }} min</button>
+      </form>
+      {% endfor %}
+    {% endif %}
+    <form method="post" action="{{ url_for('sessions.end', session_id=s.id) }}" class="action-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ here }}">
+      <button type="submit" class="btn btn-lg btn-danger"
+        onclick='return confirm({{ ("End session " ~ s.code_display ~ " now?")|tojson }})'>End Session</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if current_user.is_admin() %}
+<div class="detail-card">
+  <div class="detail-card-header"><h3>Actions</h3></div>
+  <div class="action-grid">
+    {{ station_actions(station, updates_enabled, stable_version, next=here, size="lg") }}
+  </div>
+  <details class="more-actions">
+    <summary>More</summary>
+    <div class="action-grid">
+      {{ station_admin_actions(station, size="lg") }}
+    </div>
+  </details>
+</div>
+{% endif %}
+
+<div class="detail-card">
+  <div class="detail-card-header"><h3>Recent Events</h3></div>
+  {% if events %}
+  <ul class="event-list">
+    {% for e in events %}
+    <li class="{% if e.event_type in ('client_error', 'end_script_failed') or 'fail' in e.event_type %}event-error{% endif %}">
+      <span class="event-time" title="{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC">{{ e.created_at | ago }}</span>
+      <span class="event-type">{{ e.event_type.replace('_', ' ') }}</span>
+      {% if e.message %}<span class="event-message">{{ e.message }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty-state">No events yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

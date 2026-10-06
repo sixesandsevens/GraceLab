@@ -11,6 +11,7 @@ from werkzeug.security import generate_password_hash
 from extensions import db
 from models import Station, Session, SessionEvent, AuditLog, Setting
 from audit import log_audit
+from ui import redirect_back
 from updates import _package_filename
 
 stations_bp = Blueprint("stations", __name__, url_prefix="/admin/stations")
@@ -61,10 +62,12 @@ def _issue_command(station, command_type):
     return True, None
 
 
-@stations_bp.route("/")
-@login_required
-def list_stations():
-    stations = Station.query.order_by(Station.display_name.asc()).all()
+def refresh_offline_status(stations):
+    """
+    Mark stations offline whose last heartbeat is older than the threshold.
+    Status is only recomputed when a staff page asks, so every page that
+    shows station status must call this first.
+    """
     offline_threshold = Setting.get_int(
         "station_offline_after_seconds",
         current_app.config["STATION_OFFLINE_AFTER_SECONDS"],
@@ -84,12 +87,35 @@ def list_stations():
     if changed:
         db.session.commit()
 
-    updates_enabled = Setting.get_bool("client_updates_enabled", False)
-    stable_version = Setting.get("client_stable_version", "")
 
-    return render_template("stations.html", stations=stations,
-                           updates_enabled=updates_enabled,
-                           stable_version=stable_version)
+def _update_settings():
+    return {
+        "updates_enabled": Setting.get_bool("client_updates_enabled", False),
+        "stable_version": Setting.get("client_stable_version", ""),
+    }
+
+
+@stations_bp.route("/")
+@login_required
+def list_stations():
+    stations = Station.query.order_by(Station.display_name.asc()).all()
+    refresh_offline_status(stations)
+    return render_template("stations.html", stations=stations, **_update_settings())
+
+
+@stations_bp.route("/<int:station_id>")
+@login_required
+def detail(station_id):
+    station = db.get_or_404(Station, station_id)
+    refresh_offline_status([station])
+    events = (
+        station.events
+        .order_by(SessionEvent.created_at.desc(), SessionEvent.id.desc())
+        .limit(15)
+        .all()
+    )
+    return render_template("station_detail.html", station=station, events=events,
+                           **_update_settings())
 
 
 @stations_bp.route("/new", methods=["GET", "POST"])
@@ -97,7 +123,7 @@ def list_stations():
 def new_station():
     if not current_user.is_admin():
         flash("Admin access required.", "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
 
     form = NewStationForm()
     token = None
@@ -159,7 +185,7 @@ def rotate_token(station_id):
 def mark_out_of_service(station_id):
     if not current_user.is_admin():
         flash("Admin access required.", "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
 
     station = db.get_or_404(Station, station_id)
     station.status = "out_of_service"
@@ -172,7 +198,7 @@ def mark_out_of_service(station_id):
               station_id=station.id, details={"status": "out_of_service"})
     db.session.commit()
     flash(f"{station.display_name} marked out of service.", "info")
-    return redirect(url_for("stations.list_stations"))
+    return redirect_back(url_for("stations.list_stations"))
 
 
 @stations_bp.route("/<int:station_id>/push-update", methods=["POST"])
@@ -191,7 +217,7 @@ def push_update(station_id):
     target = Setting.get("client_stable_version", "")
     if not target:
         flash("No stable version is published in Settings → Client Updates.", "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
 
     # Don't admission-lock a station for an update we can't actually serve —
     # mirrors update_check()'s package_not_found defense on the client side.
@@ -201,7 +227,7 @@ def push_update(station_id):
         flash(f"Cannot queue v{target} for {station.display_name} — package "
               f"{filename} was not found on the server. Upload it in "
               f"Client Updates first.", "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
 
     station.desired_client_version = target
     station.client_update_status = None
@@ -212,7 +238,7 @@ def push_update(station_id):
     flash(f"Update to v{target} queued for {station.display_name}. "
           f"New guest sessions are blocked until it installs; any session "
           f"already in progress finishes normally first.", "success")
-    return redirect(url_for("stations.list_stations"))
+    return redirect_back(url_for("stations.list_stations"))
 
 
 @stations_bp.route("/<int:station_id>/cancel-update", methods=["POST"])
@@ -228,7 +254,7 @@ def cancel_update(station_id):
         flash(f"{station.display_name} is already {station.client_update_status} "
               f"v{station.desired_client_version} — cannot safely cancel mid-install. "
               f"Wait for it to finish, then retry if it fails.", "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
 
     station.desired_client_version = None
     station.client_update_status = None
@@ -237,7 +263,7 @@ def cancel_update(station_id):
               station_id=station.id)
     db.session.commit()
     flash(f"Pending update cancelled for {station.display_name}.", "info")
-    return redirect(url_for("stations.list_stations"))
+    return redirect_back(url_for("stations.list_stations"))
 
 
 @stations_bp.route("/<int:station_id>/enter-maintenance", methods=["POST"])
@@ -262,7 +288,7 @@ def enter_maintenance(station_id):
               f"will finish normally, then the station will enter maintenance mode.", "success")
     else:
         flash(f"Entering maintenance mode on {station.display_name}.", "success")
-    return redirect(url_for("stations.list_stations"))
+    return redirect_back(url_for("stations.list_stations"))
 
 
 @stations_bp.route("/<int:station_id>/exit-maintenance", methods=["POST"])
@@ -283,7 +309,7 @@ def exit_maintenance(station_id):
     db.session.commit()
     flash(f"Maintenance mode ending for {station.display_name}. "
           f"The station will return to GraceLab shortly.", "success")
-    return redirect(url_for("stations.list_stations"))
+    return redirect_back(url_for("stations.list_stations"))
 
 
 @stations_bp.route("/<int:station_id>/reset-gracelab", methods=["POST"])
@@ -302,13 +328,13 @@ def reset_gracelab(station_id):
     ok, err = _issue_command(station, "reset_gracelab")
     if not ok:
         flash(err, "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
     log_audit("station_reset_issued", target_type="station", target_id=station.id,
               station_id=station.id, details={"command_id": station.pending_command_id})
     db.session.commit()
     flash(f"GraceLab reset queued for {station.display_name}. "
           f"Any active session will be ended immediately.", "success")
-    return redirect(url_for("stations.list_stations"))
+    return redirect_back(url_for("stations.list_stations"))
 
 
 @stations_bp.route("/<int:station_id>/reboot", methods=["POST"])
@@ -326,16 +352,16 @@ def reboot_station(station_id):
     if station.current_session_id:
         flash(f"Cannot reboot {station.display_name} — a guest session is active. "
               f"Wait for it to end, or use Reset GraceLab / Enter Maintenance instead.", "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
     ok, err = _issue_command(station, "reboot")
     if not ok:
         flash(err, "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
     log_audit("station_reboot_issued", target_type="station", target_id=station.id,
               station_id=station.id, details={"command_id": station.pending_command_id})
     db.session.commit()
     flash(f"Reboot queued for {station.display_name}.", "success")
-    return redirect(url_for("stations.list_stations"))
+    return redirect_back(url_for("stations.list_stations"))
 
 
 @stations_bp.route("/<int:station_id>/delete", methods=["POST"])
@@ -370,7 +396,7 @@ def delete_station(station_id):
 def return_to_service(station_id):
     if not current_user.is_admin():
         flash("Admin access required.", "danger")
-        return redirect(url_for("stations.list_stations"))
+        return redirect_back(url_for("stations.list_stations"))
 
     station = db.get_or_404(Station, station_id)
     station.status = "offline"
@@ -383,4 +409,4 @@ def return_to_service(station_id):
               station_id=station.id, details={"status": "offline (returned to service)"})
     db.session.commit()
     flash(f"{station.display_name} returned to service.", "success")
-    return redirect(url_for("stations.list_stations"))
+    return redirect_back(url_for("stations.list_stations"))

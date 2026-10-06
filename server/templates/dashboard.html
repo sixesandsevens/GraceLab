@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_station_actions.html" import station_badges %}
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
@@ -39,7 +40,7 @@
     <span class="card-header-count">{{ active_sessions | length }} active</span>
   </div>
   {% if active_sessions %}
-  <table class="table">
+  <table class="table table-stack">
     <thead>
       <tr>
         <th>Code</th>
@@ -55,12 +56,12 @@
       {% set secs = s.time_remaining_seconds() %}
       {% set mins = (secs // 60) %}
       <tr class="{% if secs < 300 %}row-warning{% endif %}">
-        <td><strong>{{ s.code_display }}</strong></td>
-        <td>{{ s.station.display_name if s.station else '—' }}</td>
-        <td>{{ s.started_at.strftime('%H:%M') if s.started_at else '—' }}</td>
-        <td>{{ s.expires_at.strftime('%H:%M') if s.expires_at else '—' }}</td>
-        <td>{{ mins }}m {{ secs % 60 }}s</td>
-        <td class="action-cell">
+        <td class="stack-title"><strong>{{ s.code_display }}</strong></td>
+        <td data-label="Station">{% if s.station %}<a href="{{ url_for('stations.detail', station_id=s.station.id) }}">{{ s.station.display_name }}</a>{% else %}—{% endif %}</td>
+        <td data-label="Started" class="hide-mobile">{{ s.started_at.strftime('%H:%M') if s.started_at else '—' }}</td>
+        <td data-label="Expires" class="hide-mobile">{{ s.expires_at.strftime('%H:%M') if s.expires_at else '—' }}</td>
+        <td data-label="Time left">{{ mins }}m {{ secs % 60 }}s</td>
+        <td class="action-cell stack-full">
           {% if current_user.is_admin() %}
           <form method="post" action="{{ url_for('sessions.extend', session_id=s.id) }}" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -95,7 +96,7 @@
     <span class="card-header-count">{{ stations | length }} registered</span>
   </div>
   {% if stations %}
-  <table class="table">
+  <table class="table table-stack">
     <thead>
       <tr>
         <th>Station</th>
@@ -107,10 +108,10 @@
     <tbody>
       {% for st in stations %}
       <tr>
-        <td><strong>{{ st.display_name }}</strong></td>
-        <td><span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span></td>
-        <td>{{ st.current_session.code_display if st.current_session else '—' }}</td>
-        <td>{{ st.last_seen.strftime('%H:%M:%S') if st.last_seen else 'never' }}</td>
+        <td class="stack-title"><a href="{{ url_for('stations.detail', station_id=st.id) }}"><strong>{{ st.display_name }}</strong></a></td>
+        <td data-label="Status">{{ station_badges(st) }}</td>
+        <td data-label="Session">{{ st.current_session.code_display if st.current_session else '—' }}</td>
+        <td data-label="Last Seen" title="{{ st.last_seen.strftime('%Y-%m-%d %H:%M:%S') ~ ' UTC' if st.last_seen else '' }}">{{ st.last_seen | ago }}</td>
       </tr>
       {% endfor %}
     </tbody>

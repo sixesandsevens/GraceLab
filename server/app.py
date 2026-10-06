@@ -24,6 +24,9 @@ def create_app(config_name=None):
     from limiter import limiter
     limiter.init_app(app)
 
+    import ui
+    ui.register(app)
+
     from auth import auth_bp
     from dashboard import dashboard_bp
     from sessions import sessions_bp

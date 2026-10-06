@@ -3,6 +3,7 @@ from flask import Blueprint, render_template
 from flask_login import login_required
 from extensions import db
 from models import Session, Station, SessionEvent
+from stations import refresh_offline_status
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -71,6 +72,7 @@ def index():
     )
 
     stations = Station.query.order_by(Station.display_name.asc()).all()
+    refresh_offline_status(stations)
 
     # Exclude used_for_extension records — they are not real sessions
     recent_sessions = (

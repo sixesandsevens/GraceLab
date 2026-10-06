@@ -10,6 +10,7 @@ from werkzeug.security import generate_password_hash
 from extensions import db
 from models import Session, SessionEvent, Setting
 from audit import log_audit
+from ui import redirect_back
 
 sessions_bp = Blueprint("sessions", __name__, url_prefix="/admin/sessions")
 
@@ -186,7 +187,7 @@ def extend(session_id):
               details={"minutes_added": minutes})
     db.session.commit()
     flash(f"Session extended by {minutes} minutes.", "success")
-    return redirect(url_for("dashboard.index"))
+    return redirect_back(url_for("dashboard.index"))
 
 
 @sessions_bp.route("/batch", methods=["GET", "POST"])
@@ -281,4 +282,4 @@ def end(session_id):
 
     db.session.commit()
     flash(f"Session {session.code_display} ended.", "info")
-    return redirect(url_for("dashboard.index"))
+    return redirect_back(url_for("dashboard.index"))

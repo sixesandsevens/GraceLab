@@ -731,3 +731,206 @@ code {
   border-radius: 0 var(--radius) var(--radius) 0;
   margin-top: 0.5rem;
 }
+
+/* === Station page === */
+.back-link {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  color: var(--grace-teal);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.page-subtitle { margin-top: 0.2rem; }
+
+.detail-card + .detail-card { margin-top: 1.25rem; }
+
+.station-summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 1rem 1.25rem 0.25rem;
+}
+
+.text-warning { color: #7d6608; font-weight: 600; }
+
+.action-form { display: inline; margin: 0; }
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.6rem;
+  padding: 1rem 1.25rem;
+}
+
+.action-grid .action-form { display: block; }
+.action-grid .btn { width: 100%; white-space: normal; }
+
+.more-actions { border-top: 1px solid var(--color-border); }
+
+.more-actions summary {
+  cursor: pointer;
+  padding: 0.75rem 1.25rem;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.event-list { list-style: none; }
+
+.event-list li {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  column-gap: 0.75rem;
+  padding: 0.55rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+}
+
+.event-list li:last-child { border-bottom: none; }
+.event-time { color: var(--color-muted); white-space: nowrap; grid-row: span 2; }
+.event-type { font-weight: 600; text-transform: capitalize; }
+.event-message { grid-column: 2; color: var(--color-muted); overflow-wrap: anywhere; }
+.event-list li.event-error .event-type { color: var(--color-danger); }
+
+.status-badge + .status-badge { margin-left: 0.25rem; }
+.station-summary-badges .status-badge + .status-badge { margin-left: 0; }
+
+/* Navbar: the toggle only exists on phones; on desktop the menu is inline. */
+.navbar-toggle { display: none; }
+
+.navbar-menu {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Phone-only cells (e.g. the "Manage" button in the station list). */
+.show-mobile { display: none; }
+
+/* === Phones and narrow tablets === */
+@media (max-width: 900px) {
+  body { font-size: 15px; }
+
+  .navbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--nav-height);
+    padding: 0.5rem 1rem;
+  }
+
+  .navbar-divider { display: none; }
+
+  .navbar-toggle {
+    display: block;
+    margin-left: auto;
+    background: none;
+    border: 1px solid rgba(255,255,255,0.35);
+    color: #fff;
+    border-radius: var(--radius);
+    padding: 0.5rem 0.9rem;
+    font: 600 14px 'Montserrat', sans-serif;
+    cursor: pointer;
+  }
+
+  .navbar-menu {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.5rem 0 0.75rem;
+  }
+
+  .navbar.open .navbar-menu { display: flex; }
+
+  .navbar-links { flex-direction: column; gap: 0.15rem; }
+  .navbar-links a { display: block; padding: 0.7rem 0.8rem; font-size: 15px; }
+
+  .navbar-user {
+    justify-content: space-between;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    padding-top: 0.75rem;
+  }
+
+  .btn-link { padding: 0.5rem 0.9rem; font-size: 14px; }
+
+  .main-content { padding: 1rem; }
+
+  .page-header { flex-wrap: wrap; margin-bottom: 1rem; }
+  .page-header h2 { font-size: 20px; }
+
+  .stat-row { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; margin-bottom: 1.25rem; }
+  .stat-card { padding: 0.8rem 1rem; }
+  .stat-value { font-size: 24px; }
+
+  /* Comfortable tap targets everywhere. */
+  .btn, .btn-sm { padding: 0.65rem 1rem; font-size: 14px; min-height: 44px; }
+  .btn-lg { padding: 0.8rem 1rem; font-size: 16px; }
+  .form-control { font-size: 16px; padding: 0.65rem 0.8rem; } /* 16px stops iOS zooming on focus */
+
+  .action-grid { grid-template-columns: 1fr 1fr; padding: 1rem; }
+  .detail-card { max-width: none; }
+  .detail-table th { width: 32%; }
+  .detail-table th, .detail-table td { padding: 0.6rem 1rem; }
+
+  .hide-mobile { display: none !important; }
+  .show-mobile { display: block; }
+
+  /* Wide tables that don't stack scroll inside their own box instead of
+     widening the page. */
+  .table:not(.table-stack) {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table:not(.table-stack) th,
+  .table:not(.table-stack) td { white-space: nowrap; }
+
+  /* Stacking tables: every row becomes a card, cells become "Label: value". */
+  .table-stack, .table-stack tbody, .table-stack tr, .table-stack td { display: block; width: 100%; }
+  .table-stack { background: none; box-shadow: none; border-radius: 0; overflow: visible; }
+  .table-stack thead { display: none; }
+
+  .table-stack tr {
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 0.75rem;
+    padding: 0.4rem 0;
+  }
+  .card .table-stack tr { box-shadow: none; border-bottom: 1px solid var(--color-border); border-radius: 0; margin: 0; }
+  .card .table-stack tr:last-child { border-bottom: none; }
+
+  .table-stack td {
+    border-bottom: none;
+    padding: 0.3rem 1rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+
+  .table-stack td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 6.5rem;
+    color: var(--color-muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .table-stack td.stack-title { font-size: 17px; padding-top: 0.5rem; }
+  .table-stack td.stack-title a { color: var(--grace-teal-dark); }
+  .table-stack td.stack-hide { display: none; }
+  .table-stack td.stack-full { display: block; padding-top: 0.5rem; padding-bottom: 0.6rem; }
+  .table-stack td.action-cell.stack-full { display: flex; }
+  .table-stack tbody tr:hover td { background: none; }
+  .table-stack tr.row-warning { background: #fffbea; }
+  .table-stack tr.row-warning td { background: none; }
+  .table-stack td.empty-state { display: block; }
+}

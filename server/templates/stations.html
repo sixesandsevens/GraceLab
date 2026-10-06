@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_station_actions.html" import station_actions, station_admin_actions, station_badges, update_badge %}
 {% block title %}Stations{% endblock %}
 
 {% block content %}
@@ -9,7 +10,7 @@
   {% endif %}
 </div>
 
-<table class="table">
+<table class="table table-stack">
   <thead>
     <tr>
       <th>Station</th>
@@ -25,128 +26,31 @@
   <tbody>
     {% for st in stations %}
     <tr>
-      <td><strong>{{ st.display_name }}</strong></td>
-      <td><code>{{ st.hostname }}</code></td>
-      <td>
-        <span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span>
-        {% if st.maintenance_active %}
-          <span class="status-badge status-updating" style="font-size:.7rem;margin-left:.25rem">Maintenance Active</span>
-        {% elif st.maintenance_requested %}
-          <span class="status-badge status-pending" style="font-size:.7rem;margin-left:.25rem">
-            {{ 'Maintenance Pending' if st.current_session_id else 'Entering Maintenance' }}
-          </span>
-        {% endif %}
-        {% if st.pending_command_type and st.pending_command_status not in ('complete', 'failed') %}
-          <span class="status-badge status-updating" style="font-size:.7rem;margin-left:.25rem">
-            {{ 'Resetting…' if st.pending_command_type == 'reset_gracelab' else 'Rebooting…' }}
-          </span>
-        {% endif %}
-      </td>
-      <td>
+      <td class="stack-title"><a href="{{ url_for('stations.detail', station_id=st.id) }}"><strong>{{ st.display_name }}</strong></a></td>
+      <td data-label="Hostname"><code>{{ st.hostname }}</code></td>
+      <td data-label="Status">{{ station_badges(st) }}</td>
+      <td data-label="Client">
         {% if st.client_version %}
           <code>{{ st.client_version }}</code>
         {% else %}
           <span style="color:var(--muted)">—</span>
         {% endif %}
-        {% if st.desired_client_version %}
-          {% if st.client_update_status == 'failed' %}
-            <span class="status-badge status-error" style="font-size:.7rem;margin-left:.25rem"
-              {% if st.client_update_error %}title="{{ st.client_update_error }}"{% endif %}>Update Failed</span>
-          {% elif st.client_update_status == 'downloading' %}
-            <span class="status-badge status-updating" style="font-size:.7rem;margin-left:.25rem">Downloading v{{ st.desired_client_version }}</span>
-          {% elif st.client_update_status == 'installing' %}
-            <span class="status-badge status-updating" style="font-size:.7rem;margin-left:.25rem">Installing v{{ st.desired_client_version }}</span>
-          {% else %}
-            <span class="status-badge status-pending" style="font-size:.7rem;margin-left:.25rem">Update Pending — v{{ st.desired_client_version }}</span>
-          {% endif %}
-        {% endif %}
+        {{ update_badge(st) }}
       </td>
-      <td>
+      <td data-label="Session">
         {% if st.current_session %}
           <a href="{{ url_for('sessions.detail', session_id=st.current_session.id) }}">{{ st.current_session.code_display }}</a>
         {% else %}—{% endif %}
       </td>
-      <td>{{ st.last_seen.strftime('%Y-%m-%d %H:%M:%S') if st.last_seen else 'never' }}</td>
-      <td>{{ st.notes or '' }}</td>
+      <td data-label="Last Seen" title="{{ st.last_seen.strftime('%Y-%m-%d %H:%M:%S') ~ ' UTC' if st.last_seen else '' }}">{{ st.last_seen | ago }}</td>
+      <td data-label="Notes" class="{{ '' if st.notes else 'stack-hide' }}">{{ st.notes or '' }}</td>
       {% if current_user.is_admin() %}
-      <td class="action-cell">
-        {% if st.status != 'out_of_service' %}
-        <form method="post" action="{{ url_for('stations.mark_out_of_service', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-danger"
-            onclick="return confirm('Mark {{ st.display_name }} out of service?')">Out of Service</button>
-        </form>
-        {% else %}
-        <form method="post" action="{{ url_for('stations.return_to_service', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-secondary">Return to Service</button>
-        </form>
-        {% endif %}
-        <form method="post" action="{{ url_for('stations.rotate_token', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-secondary"
-            onclick="return confirm('Rotate the token for {{ st.display_name }}? The old token will stop working immediately.')">Rotate Token</button>
-        </form>
-        {% set has_pending_command = st.pending_command_type and st.pending_command_status not in ('complete', 'failed') %}
-        {% if st.maintenance_active %}
-        <form method="post" action="{{ url_for('stations.exit_maintenance', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-secondary">Return to GraceLab</button>
-        </form>
-        {% elif st.maintenance_requested %}
-        <form method="post" action="{{ url_for('stations.exit_maintenance', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-secondary">Cancel Maintenance Request</button>
-        </form>
-        {% else %}
-        <form method="post" action="{{ url_for('stations.enter_maintenance', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-secondary"
-            onclick="return confirm('Enter maintenance mode on {{ st.display_name }}?{% if st.current_session_id %} The current session will finish normally first.{% endif %}')">Enter Maintenance</button>
-        </form>
-        {% endif %}
-        {% if not has_pending_command %}
-        <form method="post" action="{{ url_for('stations.reset_gracelab', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-secondary"
-            onclick="return confirm('Reset GraceLab on {{ st.display_name }}? Any active session will be ended immediately.')">Reset GraceLab</button>
-        </form>
-        {% if not st.current_session_id %}
-        <form method="post" action="{{ url_for('stations.reboot_station', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-danger"
-            onclick="return confirm('Reboot this station?')">Reboot</button>
-        </form>
-        {% endif %}
-        {% endif %}
-        {% if updates_enabled and stable_version %}
-          {% if st.desired_client_version %}
-          <form method="post" action="{{ url_for('stations.cancel_update', station_id=st.id) }}" style="display:inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-secondary"
-              onclick="return confirm('Cancel the pending update for {{ st.display_name }}? An install already in progress will not be interrupted.')">Cancel Update</button>
-          </form>
-          {% if st.client_update_status == 'failed' %}
-          <form method="post" action="{{ url_for('stations.push_update', station_id=st.id) }}" style="display:inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-secondary">Retry Update</button>
-          </form>
-          {% endif %}
-          {% elif st.client_version != stable_version %}
-          <form method="post" action="{{ url_for('stations.push_update', station_id=st.id) }}" style="display:inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-secondary"
-              onclick="return confirm('Queue v{{ stable_version }} for {{ st.display_name }}? New guest sessions will be blocked until it installs; a session already in progress finishes normally first.')">Push Update</button>
-          </form>
-          {% endif %}
-        {% endif %}
-        {% if not st.current_session_id and st.status != 'in_use' %}
-        <form method="post" action="{{ url_for('stations.delete_station', station_id=st.id) }}" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-sm btn-danger"
-            onclick="return confirm('Permanently delete {{ st.display_name }}? This cannot be undone.{% if st.status != 'offline' %} The station is still connected and will stop working until it is re-registered.{% endif %}')">Delete</button>
-        </form>
-        {% endif %}
+      <td class="action-cell hide-mobile">
+        {{ station_actions(st, updates_enabled, stable_version) }}
+        {{ station_admin_actions(st) }}
+      </td>
+      <td class="show-mobile stack-full">
+        <a href="{{ url_for('stations.detail', station_id=st.id) }}" class="btn btn-lg btn-primary btn-block">Manage {{ st.display_name }}</a>
       </td>
       {% endif %}
     </tr>

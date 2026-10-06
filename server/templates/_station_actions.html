@@ -1,0 +1,103 @@
+{#
+  Station admin actions, shared by the Stations list and a station's own page
+  so the rules for which action is offered when live in one place.
+
+  next:  local path the action redirects back to (see ui.redirect_back)
+  size:  "sm" for the list's action cell, "lg" for the station page
+#}
+
+{% macro _post(url, label, cls, next, size, confirm=None) -%}
+<form method="post" action="{{ url }}" class="action-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+  <button type="submit" class="btn btn-{{ size }} {{ cls }}"
+    {% if confirm %}onclick='return confirm({{ confirm|tojson }})'{% endif %}>{{ label }}</button>
+</form>
+{%- endmacro %}
+
+
+{# Day-to-day recovery actions. #}
+{% macro station_actions(st, updates_enabled, stable_version, next=None, size="sm") %}
+  {% set has_pending_command = st.pending_command_type and st.pending_command_status not in ('complete', 'failed') %}
+
+  {% if not has_pending_command %}
+    {{ _post(url_for('stations.reset_gracelab', station_id=st.id), 'Reset GraceLab', 'btn-secondary', next, size,
+             'Reset GraceLab on ' ~ st.display_name ~ '? Any active session will be ended immediately.') }}
+    {% if not st.current_session_id %}
+      {{ _post(url_for('stations.reboot_station', station_id=st.id), 'Reboot', 'btn-danger', next, size,
+               'Reboot ' ~ st.display_name ~ '?') }}
+    {% endif %}
+  {% endif %}
+
+  {% if st.maintenance_active %}
+    {{ _post(url_for('stations.exit_maintenance', station_id=st.id), 'Return to GraceLab', 'btn-secondary', next, size) }}
+  {% elif st.maintenance_requested %}
+    {{ _post(url_for('stations.exit_maintenance', station_id=st.id), 'Cancel Maintenance Request', 'btn-secondary', next, size) }}
+  {% else %}
+    {{ _post(url_for('stations.enter_maintenance', station_id=st.id), 'Enter Maintenance', 'btn-secondary', next, size,
+             'Enter maintenance mode on ' ~ st.display_name ~ '?' ~
+             (' The current session will finish normally first.' if st.current_session_id else '')) }}
+  {% endif %}
+
+  {% if st.status != 'out_of_service' %}
+    {{ _post(url_for('stations.mark_out_of_service', station_id=st.id), 'Out of Service', 'btn-danger', next, size,
+             'Mark ' ~ st.display_name ~ ' out of service?') }}
+  {% else %}
+    {{ _post(url_for('stations.return_to_service', station_id=st.id), 'Return to Service', 'btn-secondary', next, size) }}
+  {% endif %}
+
+  {% if updates_enabled and stable_version %}
+    {% if st.desired_client_version %}
+      {{ _post(url_for('stations.cancel_update', station_id=st.id), 'Cancel Update', 'btn-secondary', next, size,
+               'Cancel the pending update for ' ~ st.display_name ~ '? An install already in progress will not be interrupted.') }}
+      {% if st.client_update_status == 'failed' %}
+        {{ _post(url_for('stations.push_update', station_id=st.id), 'Retry Update', 'btn-secondary', next, size) }}
+      {% endif %}
+    {% elif st.client_version != stable_version %}
+      {{ _post(url_for('stations.push_update', station_id=st.id), 'Push Update', 'btn-secondary', next, size,
+               'Queue v' ~ stable_version ~ ' for ' ~ st.display_name ~ '? New guest sessions will be blocked until it installs; a session already in progress finishes normally first.') }}
+    {% endif %}
+  {% endif %}
+{% endmacro %}
+
+
+{# Rarely used, and easy to regret. #}
+{% macro station_admin_actions(st, next=None, size="sm") %}
+  {{ _post(url_for('stations.rotate_token', station_id=st.id), 'Rotate Token', 'btn-secondary', None, size,
+           'Rotate the token for ' ~ st.display_name ~ '? The old token will stop working immediately.') }}
+  {% if not st.current_session_id and st.status != 'in_use' %}
+    {{ _post(url_for('stations.delete_station', station_id=st.id), 'Delete Station', 'btn-danger', None, size,
+             'Permanently delete ' ~ st.display_name ~ '? This cannot be undone.' ~
+             (' The station is still connected and will stop working until it is re-registered.' if st.status != 'offline' else '')) }}
+  {% endif %}
+{% endmacro %}
+
+
+{# Status badges: base status plus maintenance / command / update overlays. #}
+{% macro station_badges(st) %}
+  <span class="status-badge status-{{ st.status }}">{{ st.status.replace('_', ' ') }}</span>
+  {% if st.maintenance_active %}
+    <span class="status-badge status-updating">Maintenance Active</span>
+  {% elif st.maintenance_requested %}
+    <span class="status-badge status-pending">{{ 'Maintenance Pending' if st.current_session_id else 'Entering Maintenance' }}</span>
+  {% endif %}
+  {% if st.pending_command_type and st.pending_command_status not in ('complete', 'failed') %}
+    <span class="status-badge status-updating">{{ 'Resetting…' if st.pending_command_type == 'reset_gracelab' else 'Rebooting…' }}</span>
+  {% endif %}
+{% endmacro %}
+
+
+{% macro update_badge(st) %}
+  {% if st.desired_client_version %}
+    {% if st.client_update_status == 'failed' %}
+      <span class="status-badge status-error"
+        {% if st.client_update_error %}title="{{ st.client_update_error }}"{% endif %}>Update Failed</span>
+    {% elif st.client_update_status == 'downloading' %}
+      <span class="status-badge status-updating">Downloading v{{ st.desired_client_version }}</span>
+    {% elif st.client_update_status == 'installing' %}
+      <span class="status-badge status-updating">Installing v{{ st.desired_client_version }}</span>
+    {% else %}
+      <span class="status-badge status-pending">Update Pending — v{{ st.desired_client_version }}</span>
+    {% endif %}
+  {% endif %}
+{% endmacro %}
