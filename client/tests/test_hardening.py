@@ -109,6 +109,7 @@ pkill() { :; }
 loginctl() { :; }
 sleep() { :; }
 pgrep() { return "$PROCESS_STATUS"; }
+ps() { echo "4242 1 D 30 io_schedule firefox"; }
 gl_log() { printf '%s\n' "$*" >&2; }
 gl_kill_guest
 echo cleanup-allowed
@@ -127,6 +128,8 @@ echo cleanup-allowed
         result = self.run_helper(0)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("cleanup-allowed", result.stdout)
+        # Survivors are reported on stderr so the dashboard event names them.
+        self.assertIn("4242 1 D 30 io_schedule firefox", result.stderr)
 
     def test_failed_process_inspection_blocks_cleanup(self):
         result = self.run_helper(2)

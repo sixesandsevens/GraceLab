@@ -25,8 +25,9 @@ gl_kill_guest() {
     pkill -KILL -u "$GUEST_USER" 2>/dev/null || true
     loginctl terminate-user "$GUEST_USER" 2>/dev/null || true
     # Never wipe a home or report a successful end while guest processes
-    # remain. Allow the display manager a bounded interval to reap them.
-    for attempt in 1 2 3 4 5; do
+    # remain. Allow the display manager a bounded interval to reap them;
+    # 5s proved too short in the field (gracelab-06/-02, 2026-10-05).
+    for attempt in $(seq 1 15); do
         sleep 1
         if pgrep -u "$GUEST_USER" >/dev/null 2>&1; then
             pkill -KILL -u "$GUEST_USER" 2>/dev/null || true
@@ -40,7 +41,18 @@ gl_kill_guest() {
         fi
     done
     gl_log ERROR "guest processes remain after termination; cleanup blocked"
+    gl_log_guest_survivors
     return 1
+}
+
+
+# Record which guest processes outlived the kill, in the lifecycle log and on
+# stderr — the client forwards hook stderr to the dashboard's failure event.
+gl_log_guest_survivors() {
+    local survivors
+    survivors="$(ps -o pid=,ppid=,stat=,etimes=,wchan:20=,args= -u "$GUEST_USER" 2>&1 || true)"
+    gl_log ERROR "surviving guest processes (pid ppid stat age wchan cmd):"$'\n'"${survivors}"
+    printf 'guest processes remain after termination:\n%s\n' "$survivors" >&2
 }
 
 

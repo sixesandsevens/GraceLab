@@ -52,7 +52,7 @@ import tkinter as tk
 from tkinter import font as tkfont
 from reboot_guard import RebootGuard
 
-CLIENT_VERSION = "0.4.8"
+CLIENT_VERSION = "0.4.9"
 
 # ---------------------------------------------------------------------------
 # Logging
