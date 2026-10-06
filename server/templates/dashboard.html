@@ -58,8 +58,8 @@
       <tr class="{% if secs < 300 %}row-warning{% endif %}">
         <td class="stack-title"><strong>{{ s.code_display }}</strong></td>
         <td data-label="Station">{% if s.station %}<a href="{{ url_for('stations.detail', station_id=s.station.id) }}">{{ s.station.display_name }}</a>{% else %}—{% endif %}</td>
-        <td data-label="Started" class="hide-mobile">{{ s.started_at.strftime('%H:%M') if s.started_at else '—' }}</td>
-        <td data-label="Expires" class="hide-mobile">{{ s.expires_at.strftime('%H:%M') if s.expires_at else '—' }}</td>
+        <td data-label="Started" class="hide-mobile">{{ s.started_at | localtime('time') }}</td>
+        <td data-label="Expires" class="hide-mobile">{{ s.expires_at | localtime('time') }}</td>
         <td data-label="Time left">{{ mins }}m {{ secs % 60 }}s</td>
         <td class="action-cell stack-full">
           {% if current_user.is_admin() %}
@@ -111,7 +111,7 @@
         <td class="stack-title"><a href="{{ url_for('stations.detail', station_id=st.id) }}"><strong>{{ st.display_name }}</strong></a></td>
         <td data-label="Status">{{ station_badges(st) }}</td>
         <td data-label="Session">{{ st.current_session.code_display if st.current_session else '—' }}</td>
-        <td data-label="Last Seen" title="{{ st.last_seen.strftime('%Y-%m-%d %H:%M:%S') ~ ' UTC' if st.last_seen else '' }}">{{ st.last_seen | ago }}</td>
+        <td data-label="Last Seen" title="{{ st.last_seen | localtime('full', '') }}">{{ st.last_seen | ago }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -145,7 +145,7 @@
       <tr class="{% if expired %}row-warning{% endif %}">
         <td><a href="{{ url_for('sessions.ticket', session_id=s.id) }}"><strong>{{ s.code_display }}</strong></a></td>
         <td>{{ s.duration_minutes }}m</td>
-        <td>{{ s.created_at.strftime('%H:%M') }}</td>
+        <td>{{ s.created_at | localtime('time') }}</td>
         <td>{{ s.format_expiry() }}{% if expired %} <span class="status-badge status-expired">expired</span>{% endif %}</td>
         <td>{{ s.created_by_user.username if s.created_by_user else '—' }}</td>
         <td class="action-cell">
@@ -191,7 +191,7 @@
           <span class="status-badge status-{{ s.status }}">{{ s.status.replace('_', ' ') }}</span>
         </td>
         <td>{{ s.duration_minutes }}m</td>
-        <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ s.created_at | localtime }}</td>
         <td>{{ s.created_by_user.username if s.created_by_user else '—' }}</td>
       </tr>
       {% endfor %}

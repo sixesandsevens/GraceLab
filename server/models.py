@@ -118,14 +118,10 @@ class Session(db.Model):
         return self.status == "active"
 
     def format_expiry(self):
-        """Human-readable expiration string for printing on code cards."""
-        dt = self.activation_expires_at
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        # e.g. "Sat, Jun 7 at 2:35 PM"
-        s = dt.strftime("%a, %b %d at %I:%M %p")
-        # strip leading zero from day: " 07" -> " 7"
-        return s.replace(" 0", " ")
+        """Human-readable expiration, in lab-local time, for printing on code
+        cards, e.g. "Sat, Jun 7 at 2:35 PM"."""
+        from ui import localtime
+        return localtime(self.activation_expires_at, "ticket")
 
     def is_usable(self):
         """Code can still be entered at a workstation."""

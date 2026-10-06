@@ -10,6 +10,7 @@ from flask_login import current_user, login_required
 from audit import log_audit
 from extensions import csrf, db
 from models import Setting, Station
+from ui import localtime
 
 updates_bp = Blueprint("updates", __name__)
 
@@ -246,7 +247,7 @@ def _list_packages(updates_dir):
             "filename": fname,
             "version": m.group(1),
             "size_str": size_str,
-            "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            "modified": localtime(datetime.fromtimestamp(stat.st_mtime, timezone.utc)),
             "checksum": _get_or_compute_checksum(filepath),
         })
     return packages

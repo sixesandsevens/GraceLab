@@ -100,7 +100,7 @@
   <ul class="event-list">
     {% for e in events %}
     <li class="{% if e.event_type in ('client_error', 'end_script_failed') or 'fail' in e.event_type %}event-error{% endif %}">
-      <span class="event-time" title="{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC">{{ e.created_at | ago }}</span>
+      <span class="event-time" title="{{ e.created_at | localtime('full') }}">{{ e.created_at | ago }}</span>
       <span class="event-type">{{ e.event_type.replace('_', ' ') }}</span>
       {% if e.message %}<span class="event-message">{{ e.message }}</span>{% endif %}
     </li>

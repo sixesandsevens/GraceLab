@@ -42,7 +42,7 @@
           <a href="{{ url_for('sessions.detail', session_id=st.current_session.id) }}">{{ st.current_session.code_display }}</a>
         {% else %}—{% endif %}
       </td>
-      <td data-label="Last Seen" title="{{ st.last_seen.strftime('%Y-%m-%d %H:%M:%S') ~ ' UTC' if st.last_seen else '' }}">{{ st.last_seen | ago }}</td>
+      <td data-label="Last Seen" title="{{ st.last_seen | localtime('full', '') }}">{{ st.last_seen | ago }}</td>
       <td data-label="Notes" class="{{ '' if st.notes else 'stack-hide' }}">{{ st.notes or '' }}</td>
       {% if current_user.is_admin() %}
       <td class="action-cell hide-mobile">

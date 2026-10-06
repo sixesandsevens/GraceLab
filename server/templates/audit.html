@@ -40,7 +40,7 @@
   <tbody>
     {% for entry in entries.items %}
     <tr>
-      <td style="white-space:nowrap">{{ entry.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+      <td style="white-space:nowrap">{{ entry.created_at | localtime('full') }}</td>
       <td>{{ entry.actor_username or '—' }}</td>
       <td><code>{{ entry.action }}</code></td>
       <td>

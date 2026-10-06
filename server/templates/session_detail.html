@@ -21,13 +21,13 @@
         {% endif %}
       </td></tr>
       <tr><th>Duration</th><td>{{ session.duration_minutes }} minutes</td></tr>
-      <tr><th>Created</th><td>{{ session.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+      <tr><th>Created</th><td>{{ session.created_at | localtime }}</td></tr>
       <tr><th>Created By</th><td>{{ session.created_by_user.username }}</td></tr>
       <tr><th>Valid Until</th><td>{{ session.format_expiry() }}</td></tr>
       <tr><th>Station</th><td>{{ session.station.display_name if session.station else '—' }}</td></tr>
-      <tr><th>Started</th><td>{{ session.started_at.strftime('%H:%M:%S') if session.started_at else '—' }}</td></tr>
-      <tr><th>Session Expires</th><td>{{ session.expires_at.strftime('%H:%M:%S') if session.expires_at else '—' }}</td></tr>
-      <tr><th>Ended</th><td>{{ session.ended_at.strftime('%H:%M:%S') if session.ended_at else '—' }}</td></tr>
+      <tr><th>Started</th><td>{{ session.started_at | localtime('seconds') }}</td></tr>
+      <tr><th>Session Expires</th><td>{{ session.expires_at | localtime('seconds') }}</td></tr>
+      <tr><th>Ended</th><td>{{ session.ended_at | localtime('seconds') }}</td></tr>
       <tr><th>End Reason</th><td>{{ session.end_reason or '—' }}</td></tr>
       {% if session.notes %}
       <tr><th>Notes</th><td>{{ session.notes }}</td></tr>
@@ -73,7 +73,7 @@
     <tbody>
       {% for e in events %}
       <tr>
-        <td>{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>{{ e.created_at | localtime('full') }}</td>
         <td><code>{{ e.event_type }}</code></td>
         <td>{{ e.message or '' }}</td>
       </tr>

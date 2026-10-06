@@ -9,6 +9,7 @@ Run with (server deps required — see server/requirements.txt):
 
 import os
 import sys
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -20,7 +21,7 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 from app import create_app  # noqa: E402
 from extensions import db  # noqa: E402
 from models import Session, SessionEvent, Station, User  # noqa: E402
-from ui import ago  # noqa: E402
+from ui import ago, localtime  # noqa: E402
 
 
 class StationPageTestCase(unittest.TestCase):
@@ -198,6 +199,42 @@ class AgoTests(unittest.TestCase):
         self.assertEqual(ago(now - timedelta(hours=2), now), "2 h ago")
         self.assertEqual(ago(now - timedelta(days=1), now), "1 day ago")
         self.assertEqual(ago(datetime(2026, 10, 2, 12, 0), now), "4 days ago")  # naive = UTC
+
+
+class LocalTimeTests(unittest.TestCase):
+    """Stored times are UTC; staff and printed tickets see lab-local time."""
+
+    def setUp(self):
+        self._tz = os.environ.get("TZ")
+        os.environ["TZ"] = "America/New_York"
+        time.tzset()
+
+    def tearDown(self):
+        if self._tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self._tz
+        time.tzset()
+
+    def test_styles(self):
+        dt = datetime(2026, 10, 6, 17, 48, 5)  # naive = UTC, 1:48 PM EDT
+        self.assertEqual(localtime(dt, "time"), "1:48 PM")
+        self.assertEqual(localtime(dt, "seconds"), "1:48:05 PM")
+        self.assertEqual(localtime(dt), "2026-10-06 1:48 PM")
+        self.assertEqual(localtime(dt, "full"), "2026-10-06 1:48:05 PM EDT")
+        self.assertEqual(localtime(dt, "ticket"), "Tue, Oct 6 at 1:48 PM")
+        self.assertEqual(localtime(dt.replace(tzinfo=timezone.utc), "time"), "1:48 PM")
+
+    def test_standard_time(self):
+        self.assertEqual(localtime(datetime(2026, 12, 1, 17, 0), "full"), "2026-12-01 12:00:00 PM EST")
+
+    def test_missing(self):
+        self.assertEqual(localtime(None), "—")
+        self.assertEqual(localtime(None, "datetime", "never"), "never")
+
+    def test_ticket_expiry_is_local(self):
+        sess = Session(activation_expires_at=datetime(2026, 6, 7, 18, 35))
+        self.assertEqual(sess.format_expiry(), "Sun, Jun 7 at 2:35 PM")
 
 
 if __name__ == "__main__":
